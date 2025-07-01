@@ -1,0 +1,13 @@
+[workspace]
+members = ["crates/houjing-main"]
+resolver = "2"
+
+[profile.dev]
+debug = 0
+strip = "debuginfo"
+opt-level = 0
+lto = "thin"
+incremental = true
+
+[profile.dev.package."*"]
+opt-level = 3
