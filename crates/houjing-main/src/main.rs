@@ -41,7 +41,6 @@ fn main() {
                 handle_point_selection,
                 handle_point_dragging,
                 handle_curve_creation,
-                mark_curves_for_update,
                 update_curve_meshes,
                 debug_mouse_position,
             ),

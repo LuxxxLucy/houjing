@@ -1,6 +1,7 @@
 use crate::components::*;
 use crate::input::*;
 use crate::params::*;
+use crate::systems::NeedsUpdate;
 use bevy::prelude::*;
 use log::debug;
 
@@ -8,80 +9,96 @@ pub fn handle_point_selection(
     mut commands: Commands,
     input_state: Res<InputState>,
     mouse_pos: Res<MouseWorldPos>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-    point_query: Query<(Entity, &ControlPoint), Without<Selected>>,
-    selected_query: Query<(Entity, &ControlPoint), With<Selected>>,
-    mut mesh_materials: Query<&mut Handle<ColorMaterial>>,
+    curve_query: Query<(Entity, &BezierCurve)>,
+    selected_query: Query<Entity, With<SelectedControlPoint>>,
 ) {
     if !input_state.mouse_just_pressed {
         return;
     }
 
-    // First, check if we're clicking on an already selected point
-    let mut clicking_on_selected = false;
-    for (_, control_point) in selected_query.iter() {
-        let distance = mouse_pos.0.distance(control_point.position);
-        if distance < SELECTION_RADIUS {
-            clicking_on_selected = true;
-            break;
-        }
-    }
-
-    // If clicking on already selected point, don't change selection
-    if clicking_on_selected {
-        return;
-    }
-
     // Clear existing selections
-    for (entity, _) in selected_query.iter() {
-        commands.entity(entity).remove::<Selected>();
-        if let Ok(mut material_handle) = mesh_materials.get_mut(entity) {
-            *material_handle = materials.add(ColorMaterial::from(CONTROL_POINT_COLOR));
-        }
+    for entity in selected_query.iter() {
+        commands.entity(entity).despawn();
     }
 
     // Find closest control point
     let mut closest_point = None;
     let mut closest_distance = f32::INFINITY;
 
-    for (entity, control_point) in point_query.iter() {
-        let distance = mouse_pos.0.distance(control_point.position);
-        if distance < SELECTION_RADIUS && distance < closest_distance {
-            closest_distance = distance;
-            closest_point = Some(entity);
+    for (curve_entity, curve) in curve_query.iter() {
+        for (point_index, &point_pos) in curve.control_points.iter().enumerate() {
+            let distance = mouse_pos.0.distance(point_pos);
+            if distance < SELECTION_RADIUS && distance < closest_distance {
+                closest_distance = distance;
+                closest_point = Some((curve_entity, point_index));
+            }
         }
     }
 
     // Select closest point if found
-    if let Some(entity) = closest_point {
-        commands.entity(entity).insert(Selected);
-        if let Ok(mut material_handle) = mesh_materials.get_mut(entity) {
-            *material_handle = materials.add(ColorMaterial::from(SELECTED_POINT_COLOR));
-        }
-        debug!("Selected control point");
+    if let Some((curve_entity, point_index)) = closest_point {
+        commands.spawn(SelectedControlPoint {
+            curve_entity,
+            point_index,
+        });
+        debug!("Selected control point {point_index} of curve {curve_entity:?}");
     }
 }
 
 pub fn handle_point_dragging(
     input_state: Res<InputState>,
     mouse_pos: Res<MouseWorldPos>,
-    mut point_query: Query<(&mut ControlPoint, &mut Transform), With<Selected>>,
+    mut commands: Commands,
+    selected_query: Query<&SelectedControlPoint>,
     mut curve_query: Query<&mut BezierCurve>,
 ) {
     if !input_state.dragging {
         return;
     }
 
-    for (mut control_point, mut transform) in point_query.iter_mut() {
-        // Update control point position
-        control_point.position = mouse_pos.0;
-        transform.translation = mouse_pos.0.extend(1.0);
-
-        // Update the curve data
-        if let Ok(mut curve) = curve_query.get_mut(control_point.curve_entity) {
-            if let Some(point) = curve.control_points.get_mut(control_point.point_index) {
+    for selected_point in selected_query.iter() {
+        if let Ok(mut curve) = curve_query.get_mut(selected_point.curve_entity) {
+            if let Some(point) = curve.control_points.get_mut(selected_point.point_index) {
                 *point = mouse_pos.0;
+
+                // Mark curve for mesh update
+                commands
+                    .entity(selected_point.curve_entity)
+                    .insert(NeedsUpdate);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::ecs::world::World;
+
+    #[test]
+    fn test_selected_control_point_component() {
+        let mut world = World::new();
+
+        // Create a curve entity
+        let curve_entity = world
+            .spawn(BezierCurve::new(vec![
+                Vec2::new(0.0, 0.0),
+                Vec2::new(50.0, 100.0),
+                Vec2::new(100.0, 0.0),
+            ]))
+            .id();
+
+        // Create a selected control point entity
+        let selected_entity = world
+            .spawn(SelectedControlPoint {
+                curve_entity,
+                point_index: 1,
+            })
+            .id();
+
+        // Verify the selected control point data
+        let selected = world.get::<SelectedControlPoint>(selected_entity).unwrap();
+        assert_eq!(selected.curve_entity, curve_entity);
+        assert_eq!(selected.point_index, 1);
     }
 }

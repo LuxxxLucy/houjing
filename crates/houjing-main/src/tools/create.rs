@@ -130,3 +130,21 @@ pub fn render_creation_points(
 pub struct CreationPoint {
     pub index: usize,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::ecs::world::World;
+
+    #[test]
+    fn test_creation_point_component() {
+        let mut world = World::new();
+
+        // Create a creation point entity
+        let creation_entity = world.spawn(CreationPoint { index: 2 }).id();
+
+        // Verify the creation point data
+        let creation_point = world.get::<CreationPoint>(creation_entity).unwrap();
+        assert_eq!(creation_point.index, 2);
+    }
+}

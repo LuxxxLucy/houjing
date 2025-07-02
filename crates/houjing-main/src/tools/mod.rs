@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use log::debug;
 
 pub mod create;
 pub mod select;
@@ -38,15 +37,17 @@ pub fn handle_tool_switching(
     mut tool_state: ResMut<ToolState>,
     keyboard: Res<ButtonInput<KeyCode>>,
 ) {
+    let mut new_tool = None;
     if keyboard.just_pressed(KeyCode::KeyS) {
-        tool_state.current_tool = Tool::Select;
-        tool_state.reset();
-        debug!("Switched to Select tool");
+        new_tool = Some(Tool::Select)
     }
 
     if keyboard.just_pressed(KeyCode::KeyC) {
-        tool_state.current_tool = Tool::Create;
+        new_tool = Some(Tool::Create)
+    }
+
+    if let Some(new_tool) = new_tool {
+        tool_state.current_tool = new_tool;
         tool_state.reset();
-        debug!("Switched to Create tool - State reset");
     }
 }

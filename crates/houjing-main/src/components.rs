@@ -53,11 +53,51 @@ impl BezierCurve {
 }
 
 #[derive(Component)]
-pub struct ControlPoint {
-    pub position: Vec2,
+pub struct Selected;
+
+#[derive(Component, Debug, Clone)]
+pub struct SelectedControlPoint {
     pub curve_entity: Entity,
     pub point_index: usize,
 }
 
-#[derive(Component)]
-pub struct Selected;
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_curve_control_points_data() {
+        let expected_points = vec![
+            Vec2::new(0.0, 0.0),
+            Vec2::new(50.0, 100.0),
+            Vec2::new(100.0, 0.0),
+        ];
+        let curve = BezierCurve::new(expected_points.clone());
+
+        assert_eq!(curve.control_points.len(), 3);
+        for (i, &expected_point) in expected_points.iter().enumerate() {
+            assert_eq!(curve.control_points[i], expected_point);
+        }
+    }
+
+    #[test]
+    fn test_curve_evaluation() {
+        let curve = BezierCurve::new(vec![
+            Vec2::new(0.0, 0.0),
+            Vec2::new(50.0, 100.0),
+            Vec2::new(100.0, 0.0),
+        ]);
+
+        // Test evaluation at t=0 (should be first control point)
+        let start = curve.evaluate(0.0);
+        assert_eq!(start, Vec2::new(0.0, 0.0));
+
+        // Test evaluation at t=1 (should be last control point)
+        let end = curve.evaluate(1.0);
+        assert_eq!(end, Vec2::new(100.0, 0.0));
+
+        // Test evaluation at t=0.5 (should be somewhere in between)
+        let mid = curve.evaluate(0.5);
+        assert!(mid.x > 0.0 && mid.x < 100.0);
+    }
+}

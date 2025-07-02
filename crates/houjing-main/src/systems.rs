@@ -27,55 +27,25 @@ pub fn render_curves(
 }
 
 pub fn render_control_points(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut gizmos: Gizmos,
     curve_query: Query<(Entity, &BezierCurve)>,
-    existing_points: Query<(Entity, &ControlPoint)>,
+    selected_query: Query<&SelectedControlPoint>,
 ) {
-    // Only create control points if they don't exist
+    let selected_points: Vec<(Entity, usize)> = selected_query
+        .iter()
+        .map(|scp| (scp.curve_entity, scp.point_index))
+        .collect();
+
     for (curve_entity, curve) in curve_query.iter() {
         for (i, &point_pos) in curve.control_points.iter().enumerate() {
-            // Check if control point already exists for this curve and index
-            let point_exists = existing_points
-                .iter()
-                .any(|(_, cp)| cp.curve_entity == curve_entity && cp.point_index == i);
+            let is_selected = selected_points.contains(&(curve_entity, i));
+            let color = if is_selected {
+                SELECTED_POINT_COLOR
+            } else {
+                CONTROL_POINT_COLOR
+            };
 
-            if !point_exists {
-                let circle_mesh = Circle::new(CONTROL_POINT_RADIUS);
-                let mesh_handle = meshes.add(circle_mesh);
-                let material_handle = materials.add(ColorMaterial::from(CONTROL_POINT_COLOR));
-
-                commands.spawn((
-                    MaterialMesh2dBundle {
-                        mesh: Mesh2dHandle(mesh_handle),
-                        material: material_handle,
-                        transform: Transform::from_translation(
-                            point_pos.extend(CONTROL_POINT_Z_LAYER),
-                        ),
-                        ..default()
-                    },
-                    ControlPoint {
-                        position: point_pos,
-                        curve_entity,
-                        point_index: i,
-                    },
-                ));
-            }
-        }
-    }
-}
-
-pub fn mark_curves_for_update(
-    mut commands: Commands,
-    selected_points: Query<&ControlPoint, With<Selected>>,
-    input_state: Res<crate::input::InputState>,
-) {
-    if input_state.dragging {
-        for control_point in selected_points.iter() {
-            commands
-                .entity(control_point.curve_entity)
-                .insert(NeedsUpdate);
+            gizmos.circle_2d(point_pos, CONTROL_POINT_RADIUS, color);
         }
     }
 }
@@ -118,4 +88,76 @@ fn create_curve_mesh(curve: &BezierCurve) -> Mesh {
     mesh.insert_indices(bevy::render::mesh::Indices::U32(indices));
 
     mesh
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::MinimalPlugins;
+
+    #[test]
+    fn test_needs_update_component() {
+        use bevy::ecs::world::World;
+
+        let mut world = World::new();
+        let entity = world.spawn(BezierCurve::new(vec![Vec2::ZERO])).id();
+
+        // Add NeedsUpdate
+        world.entity_mut(entity).insert(NeedsUpdate);
+        assert!(world.get::<NeedsUpdate>(entity).is_some());
+
+        // Remove NeedsUpdate
+        world.entity_mut(entity).remove::<NeedsUpdate>();
+        assert!(world.get::<NeedsUpdate>(entity).is_none());
+    }
+
+    #[test]
+    fn test_curve_system_integration() {
+        let mut app = App::new();
+
+        app.add_plugins(MinimalPlugins)
+            .init_resource::<Assets<Mesh>>()
+            .init_resource::<Assets<ColorMaterial>>()
+            .add_systems(Update, (render_curves, update_curve_meshes));
+
+        // Create a test curve
+        let initial_points = vec![
+            Vec2::new(0.0, 0.0),
+            Vec2::new(50.0, 100.0),
+            Vec2::new(100.0, 0.0),
+        ];
+        let curve = BezierCurve::new(initial_points);
+        let curve_entity = app.world.spawn(curve).id();
+
+        // Run one update to create the mesh components
+        app.update();
+
+        // Modify the curve control points
+        let new_points = vec![
+            Vec2::new(10.0, 10.0),
+            Vec2::new(60.0, 110.0),
+            Vec2::new(110.0, 10.0),
+        ];
+
+        if let Some(mut curve) = app.world.get_mut::<BezierCurve>(curve_entity) {
+            curve.control_points = new_points.clone();
+        }
+
+        // Add NeedsUpdate component to trigger re-rendering
+        app.world.entity_mut(curve_entity).insert(NeedsUpdate);
+
+        // Run update to process the mesh update
+        app.update();
+
+        // Verify curve has updated control points
+        let curve = app.world.get::<BezierCurve>(curve_entity).unwrap();
+        assert_eq!(curve.control_points.len(), 3);
+
+        for (i, &expected_point) in new_points.iter().enumerate() {
+            assert_eq!(curve.control_points[i], expected_point);
+        }
+
+        // Verify NeedsUpdate was removed after processing
+        assert!(app.world.get::<NeedsUpdate>(curve_entity).is_none());
+    }
 }
