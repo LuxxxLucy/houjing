@@ -1,53 +1,31 @@
-use bevy::prelude::*;
-
-pub mod create;
+pub mod curve_create;
 pub mod select;
 
-#[derive(Resource, Default)]
-pub struct ToolState {
-    pub current_tool: Tool,
-    pub creation_points: Vec<Vec2>,
-    pub creation_state: CreationState,
-    pub last_point: Option<Vec2>,
-}
+use bevy::prelude::*;
 
-impl ToolState {
-    pub fn reset(&mut self) {
-        self.creation_points.clear();
-        self.creation_state = CreationState::Idle;
-        self.last_point = None;
+pub(crate) struct ToolPlugin;
+
+impl Plugin for ToolPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<ToolState>();
     }
 }
 
+#[derive(Resource, Default)]
+pub(crate) struct ToolState {
+    pub current_tool: Tool,
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
-pub enum Tool {
+pub(crate) enum Tool {
     #[default]
     Select,
-    Create,
+    CreateCurve,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
-pub enum CreationState {
-    #[default]
-    Idle,
-    CollectingPoints,
-}
+use curve_create::CurveCreationPlugin;
+use select::SelectionPlugin;
 
-pub fn handle_tool_switching(
-    mut tool_state: ResMut<ToolState>,
-    keyboard: Res<ButtonInput<KeyCode>>,
-) {
-    let mut new_tool = None;
-    if keyboard.just_pressed(KeyCode::KeyS) {
-        new_tool = Some(Tool::Select)
-    }
-
-    if keyboard.just_pressed(KeyCode::KeyC) {
-        new_tool = Some(Tool::Create)
-    }
-
-    if let Some(new_tool) = new_tool {
-        tool_state.current_tool = new_tool;
-        tool_state.reset();
-    }
+pub(crate) fn add_tools_plugins(app: &mut App) {
+    app.add_plugins((ToolPlugin, SelectionPlugin, CurveCreationPlugin));
 }
