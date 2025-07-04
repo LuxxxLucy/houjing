@@ -1,7 +1,5 @@
-pub mod component;
-pub mod input;
-pub mod startup;
-pub mod tools;
+mod component;
+mod systems;
 
 use bevy::prelude::*;
 
@@ -22,10 +20,8 @@ define_system_sets!(
 );
 
 fn init_app(app: &mut App) {
-    startup::add_startup_plugins(app);
     component::add_component_plugins(app);
-    input::add_input_plugins(app);
-    tools::add_tools_plugins(app);
+    systems::add_systems_plugins(app);
 }
 
 // Extension trait for App to provide builder pattern used in `main.rs`

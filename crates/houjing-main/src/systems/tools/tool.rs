@@ -1,11 +1,23 @@
 use crate::InputSet;
-use crate::tools::{Tool, ToolState};
 use bevy::prelude::*;
 
-pub struct KeyboardPlugin;
+#[derive(Resource, Default)]
+pub(crate) struct ToolState {
+    pub current_tool: Tool,
+}
 
-impl Plugin for KeyboardPlugin {
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) enum Tool {
+    #[default]
+    Select,
+    CreateCurve,
+}
+
+pub(crate) struct ToolPlugin;
+
+impl Plugin for ToolPlugin {
     fn build(&self, app: &mut App) {
+        app.init_resource::<ToolState>();
         app.add_systems(Update, (handle_tool_switching,).in_set(InputSet));
     }
 }

@@ -1,34 +1,16 @@
+use super::cursor::*;
+use super::tool::{Tool, ToolState};
 use crate::component::curve::BezierCurve;
-use crate::input::mouse::*;
-use crate::tools::{Tool, ToolState};
 use crate::{EditSet, ShowSet};
 use bevy::prelude::*;
 use bevy::sprite::{MaterialMesh2dBundle, Mesh2dHandle};
 use log::debug;
 
-// Default curve creation configuration constants
-const DEFAULT_POINT_COLOR: Color = Color::BLUE;
-const DEFAULT_POINT_RADIUS: f32 = 6.0;
-const DEFAULT_DUPLICATE_THRESHOLD: f32 = 1.0;
-const DEFAULT_CURVE_CREATION_Z_LAYER: f32 = 2.0;
-
-#[derive(Resource)]
-pub struct CurveCreationConfig {
-    pub point_color: Color,
-    pub point_radius: f32,
-    pub duplicate_threshold: f32,
-    pub z_layer: f32,
-}
-
-impl Default for CurveCreationConfig {
-    fn default() -> Self {
-        Self {
-            point_color: DEFAULT_POINT_COLOR,
-            point_radius: DEFAULT_POINT_RADIUS,
-            duplicate_threshold: DEFAULT_DUPLICATE_THRESHOLD,
-            z_layer: DEFAULT_CURVE_CREATION_Z_LAYER,
-        }
-    }
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum CurveCreationState {
+    #[default]
+    Idle,
+    CollectingPoints,
 }
 
 #[derive(Resource, Default)]
@@ -46,13 +28,30 @@ impl CurveCreationToolState {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
-pub enum CurveCreationState {
-    #[default]
-    Idle,
-    CollectingPoints,
+// Default curve creation configuration constants
+const DEFAULT_POINT_COLOR: Color = Color::BLUE;
+const DEFAULT_POINT_RADIUS: f32 = 6.0;
+const DEFAULT_DUPLICATE_THRESHOLD: f32 = 1.0;
+const DEFAULT_CURVE_CREATION_Z_LAYER: f32 = 2.0;
+
+#[derive(Resource)]
+struct CurveCreationConfig {
+    pub point_color: Color,
+    pub point_radius: f32,
+    pub duplicate_threshold: f32,
+    pub z_layer: f32,
 }
 
+impl Default for CurveCreationConfig {
+    fn default() -> Self {
+        Self {
+            point_color: DEFAULT_POINT_COLOR,
+            point_radius: DEFAULT_POINT_RADIUS,
+            duplicate_threshold: DEFAULT_DUPLICATE_THRESHOLD,
+            z_layer: DEFAULT_CURVE_CREATION_Z_LAYER,
+        }
+    }
+}
 pub struct CurveCreationPlugin;
 
 impl Plugin for CurveCreationPlugin {
@@ -68,22 +67,22 @@ fn handle_curve_creation(
     mut commands: Commands,
     mut curve_creation_state: ResMut<CurveCreationToolState>,
     tool_state: Res<ToolState>,
-    input_state: Res<MouseState>,
-    mouse_pos: Res<MouseWorldPos>,
+    cursor_state: Res<CursorState>,
+    cursor_pos: Res<CursorWorldPos>,
     config: Res<CurveCreationConfig>,
 ) {
     if tool_state.current_tool != Tool::CreateCurve {
         return;
     }
 
-    if !input_state.mouse_just_pressed {
+    if !cursor_state.cursor_just_pressed {
         return;
     }
 
     // Check if this is the same point as the last one
     if let Some(last_point) = curve_creation_state.last_point {
-        if mouse_pos.0.distance(last_point) < config.duplicate_threshold {
-            debug!("DEBUG: Ignoring duplicate point at {:?}", mouse_pos.0);
+        if cursor_pos.0.distance(last_point) < config.duplicate_threshold {
+            debug!("DEBUG: Ignoring duplicate point at {:?}", cursor_pos.0);
             return;
         }
     }
@@ -100,19 +99,23 @@ fn handle_curve_creation(
             // Start collecting points - should have 0 points here
             debug!("DEBUG: In Idle state, clearing points and starting new curve");
             curve_creation_state.reset(); // Ensure we start fresh
-            curve_creation_state.curve_creation_points.push(mouse_pos.0);
-            curve_creation_state.last_point = Some(mouse_pos.0);
+            curve_creation_state
+                .curve_creation_points
+                .push(cursor_pos.0);
+            curve_creation_state.last_point = Some(cursor_pos.0);
             curve_creation_state.curve_creation_state = CurveCreationState::CollectingPoints;
             debug!(
                 "Started cubic Bézier curve creation. Added point: {:?} (total: 1/4)",
-                mouse_pos.0
+                cursor_pos.0
             );
         }
         CurveCreationState::CollectingPoints => {
-            curve_creation_state.curve_creation_points.push(mouse_pos.0);
-            curve_creation_state.last_point = Some(mouse_pos.0);
+            curve_creation_state
+                .curve_creation_points
+                .push(cursor_pos.0);
+            curve_creation_state.last_point = Some(cursor_pos.0);
             let point_count = curve_creation_state.curve_creation_points.len();
-            debug!("Added point: {:?} (total: {}/4)", mouse_pos.0, point_count);
+            debug!("Added point: {:?} (total: {}/4)", cursor_pos.0, point_count);
 
             if point_count == 4 {
                 // Automatically create the curve
@@ -171,11 +174,7 @@ fn render_curve_creation_points(
     }
 
     // Render new points
-    for (i, &point_pos) in curve_creation_state
-        .curve_creation_points
-        .iter()
-        .enumerate()
-    {
+    for &point_pos in curve_creation_state.curve_creation_points.iter() {
         let circle_mesh = Circle::new(config.point_radius);
         let mesh_handle = meshes.add(circle_mesh);
         let material_handle = materials.add(ColorMaterial::from(config.point_color));
@@ -187,32 +186,10 @@ fn render_curve_creation_points(
                 transform: Transform::from_translation(point_pos.extend(config.z_layer)),
                 ..default()
             },
-            CurveCreationPoint { index: i },
+            CurveCreationPoint,
         ));
     }
 }
 
 #[derive(Component)]
-pub struct CurveCreationPoint {
-    pub index: usize,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use bevy::ecs::world::World;
-
-    #[test]
-    fn test_curve_creation_point_component() {
-        let mut world = World::new();
-
-        // Create a curve creation point entity
-        let curve_creation_entity = world.spawn(CurveCreationPoint { index: 2 }).id();
-
-        // Verify the curve creation point data
-        let curve_creation_point = world
-            .get::<CurveCreationPoint>(curve_creation_entity)
-            .unwrap();
-        assert_eq!(curve_creation_point.index, 2);
-    }
-}
+pub struct CurveCreationPoint;
