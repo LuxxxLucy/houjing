@@ -26,6 +26,25 @@ impl Default for CursorConfig {
         }
     }
 }
+
+// Default cursor visualization configuration constants
+const DEFAULT_DRAG_COLOR: Color = Color::ORANGE;
+const DEFAULT_CURSOR_SIZE: f32 = 8.0;
+
+#[derive(Resource)]
+pub struct CursorVisualizationConfig {
+    pub drag_color: Color,
+    pub cursor_size: f32,
+}
+
+impl Default for CursorVisualizationConfig {
+    fn default() -> Self {
+        Self {
+            drag_color: DEFAULT_DRAG_COLOR,
+            cursor_size: DEFAULT_CURSOR_SIZE,
+        }
+    }
+}
 pub struct CursorPlugin;
 
 impl Plugin for CursorPlugin {
@@ -33,11 +52,13 @@ impl Plugin for CursorPlugin {
         app.init_resource::<CursorWorldPos>()
             .init_resource::<CursorState>()
             .init_resource::<CursorConfig>()
+            .init_resource::<CursorVisualizationConfig>()
             .add_systems(
                 Update,
                 (
                     update_cursor_world_position,
                     handle_cursor_input,
+                    manage_cursor_visibility,
                     debug_cursor_position,
                 )
                     .in_set(InputSet),
@@ -91,5 +112,13 @@ fn handle_cursor_input(
 fn debug_cursor_position(cursor_pos: Res<CursorWorldPos>, input_state: Res<CursorState>) {
     if input_state.cursor_just_pressed {
         debug!("Cursor clicked at: {:?}", cursor_pos.0);
+    }
+}
+
+// disable system cursor when dragging (and instead show our dragging cursor)
+fn manage_cursor_visibility(input_state: Res<CursorState>, mut windows: Query<&mut Window>) {
+    if let Ok(mut window) = windows.get_single_mut() {
+        // Hide system cursor when dragging, show it otherwise
+        window.cursor.visible = !input_state.dragging;
     }
 }
