@@ -4,18 +4,31 @@ use crate::component::curve::{BezierCurve, CurveNeedsUpdate};
 use crate::systems::tools::cursor::CursorVisualizationConfig;
 use crate::{EditSet, ShowSet};
 use bevy::prelude::*;
+use bevy::sprite::{ColorMaterial, ColorMesh2dBundle};
 use std::collections::HashMap;
 
+// used to store the original curve before drag (moving selected pont)
 #[derive(Resource, Default)]
 pub struct OriginalCurveStates {
     pub curves: HashMap<Entity, Vec<Vec2>>,
 }
+
+// used in showing rectangle in dragging (without an already selected point)
+#[derive(Resource, Default)]
+pub struct DragRectangleEntity {
+    pub entity: Option<Entity>,
+}
+
+// used in showing rectangle in dragging (without an already selected point)
+#[derive(Component)]
+pub struct DragRectangle;
 
 pub struct DragPlugin;
 
 impl Plugin for DragPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<OriginalCurveStates>()
+            .init_resource::<DragRectangleEntity>()
             .add_systems(Update, (handle_selected_point_dragging,).in_set(EditSet))
             .add_systems(
                 Update,
@@ -158,82 +171,149 @@ fn render_selected_point_drag(
     render_drag_start_indicator(&mut gizmos, input_state.drag_start_pos, &config);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_selected_rectangle_drag(
+    mut commands: Commands,
     mut gizmos: Gizmos,
     cursor_pos: Res<CursorWorldPos>,
     input_state: Res<CursorState>,
     config: Res<CursorVisualizationConfig>,
     selected_query: Query<&SelectedControlPoint>,
     time: Res<Time>,
+    mut drag_rect: ResMut<DragRectangleEntity>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut rect_query: Query<&mut Transform, With<DragRectangle>>,
 ) {
-    // Only show when dragging and no points are selected
-    if !input_state.dragging || !selected_query.is_empty() {
-        return;
+    let should_show_rectangle = input_state.dragging && selected_query.is_empty();
+
+    if should_show_rectangle {
+        let start = input_state.drag_start_pos;
+        let end = cursor_pos.0;
+
+        // Render filled background
+        render_rectangle_fill(
+            &mut commands,
+            start,
+            end,
+            &config,
+            &mut drag_rect,
+            &mut meshes,
+            &mut materials,
+            &mut rect_query,
+        );
+
+        // Render animated wireframe
+        render_rectangle_wireframe(&mut gizmos, start, end, &config, &time);
+    } else if let Some(entity) = drag_rect.entity {
+        // Remove rectangle when not dragging
+        commands.entity(entity).despawn();
+        drag_rect.entity = None;
     }
+}
 
-    fn render_animated_selection_rectangle(
-        gizmos: &mut Gizmos,
-        start: Vec2,
-        end: Vec2,
-        config: &CursorVisualizationConfig,
-        time: &Time,
-    ) {
-        // Calculate rectangle corners
-        let min_x = start.x.min(end.x);
-        let max_x = start.x.max(end.x);
-        let min_y = start.y.min(end.y);
-        let max_y = start.y.max(end.y);
+#[allow(clippy::too_many_arguments)]
+fn render_rectangle_fill(
+    commands: &mut Commands,
+    start: Vec2,
+    end: Vec2,
+    config: &CursorVisualizationConfig,
+    drag_rect: &mut DragRectangleEntity,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<ColorMaterial>,
+    rect_query: &mut Query<&mut Transform, With<DragRectangle>>,
+) {
+    // Calculate rectangle bounds
+    let min_x = start.x.min(end.x);
+    let max_x = start.x.max(end.x);
+    let min_y = start.y.min(end.y);
+    let max_y = start.y.max(end.y);
 
-        let top_left = Vec2::new(min_x, max_y);
-        let top_right = Vec2::new(max_x, max_y);
-        let bottom_right = Vec2::new(max_x, min_y);
-        let bottom_left = Vec2::new(min_x, min_y);
+    let center = Vec2::new((min_x + max_x) / 2.0, (min_y + max_y) / 2.0);
+    let size = Vec2::new(max_x - min_x, max_y - min_y);
 
-        // Animation parameters for rectangle border
-        let dash_length = 6.0;
-        let gap_length = 4.0;
-        let pattern_length = dash_length + gap_length;
-        let animation_speed = 40.0; // pixels per second
-        let time_offset = (time.elapsed_seconds() * animation_speed) % pattern_length;
-        let selection_color = config.drag_color.with_a(0.8);
+    if let Some(entity) = drag_rect.entity {
+        // Update existing rectangle
+        if let Ok(mut transform) = rect_query.get_mut(entity) {
+            transform.translation = center.extend(0.0);
+            transform.scale = size.extend(1.0);
+        }
+    } else {
+        // Create new rectangle
+        let background_color = config.drag_color.with_a(0.1);
+        let material = materials.add(ColorMaterial::from(background_color));
+        let mesh = meshes.add(Rectangle::new(1.0, 1.0));
 
-        // Function to draw dashed line between two points
-        let draw_dashed_line = |gizmos: &mut Gizmos, start: Vec2, end: Vec2, offset: f32| {
-            let direction = end - start;
-            let distance = direction.length();
+        let entity = commands
+            .spawn((
+                ColorMesh2dBundle {
+                    mesh: mesh.into(),
+                    material,
+                    transform: Transform::from_translation(center.extend(0.0))
+                        .with_scale(size.extend(1.0)),
+                    ..default()
+                },
+                DragRectangle,
+            ))
+            .id();
 
-            if distance > 0.0 {
-                let normalized_direction = direction / distance;
-                let mut current_distance = -offset;
+        drag_rect.entity = Some(entity);
+    }
+}
 
-                while current_distance < distance {
-                    let dash_start = current_distance.max(0.0);
-                    let dash_end = (current_distance + dash_length).min(distance);
+fn render_rectangle_wireframe(
+    gizmos: &mut Gizmos,
+    start: Vec2,
+    end: Vec2,
+    config: &CursorVisualizationConfig,
+    time: &Time,
+) {
+    // Calculate rectangle corners
+    let min_x = start.x.min(end.x);
+    let max_x = start.x.max(end.x);
+    let min_y = start.y.min(end.y);
+    let max_y = start.y.max(end.y);
 
-                    if dash_start < dash_end {
-                        let start_pos = start + normalized_direction * dash_start;
-                        let end_pos = start + normalized_direction * dash_end;
-                        gizmos.line_2d(start_pos, end_pos, selection_color);
-                    }
+    let top_left = Vec2::new(min_x, max_y);
+    let top_right = Vec2::new(max_x, max_y);
+    let bottom_right = Vec2::new(max_x, min_y);
+    let bottom_left = Vec2::new(min_x, min_y);
 
-                    current_distance += pattern_length;
+    // Animation parameters for rectangle border
+    let dash_length = 6.0;
+    let gap_length = 4.0;
+    let pattern_length = dash_length + gap_length;
+    let animation_speed = 40.0; // pixels per second
+    let time_offset = (time.elapsed_seconds() * animation_speed) % pattern_length;
+    let selection_color = config.drag_color.with_a(0.8);
+
+    // Function to draw dashed line between two points
+    let draw_dashed_line = |gizmos: &mut Gizmos, start: Vec2, end: Vec2, offset: f32| {
+        let direction = end - start;
+        let distance = direction.length();
+
+        if distance > 0.0 {
+            let normalized_direction = direction / distance;
+            let mut current_distance = -offset;
+
+            while current_distance < distance {
+                let dash_start = current_distance.max(0.0);
+                let dash_end = (current_distance + dash_length).min(distance);
+
+                if dash_start < dash_end {
+                    let start_pos = start + normalized_direction * dash_start;
+                    let end_pos = start + normalized_direction * dash_end;
+                    gizmos.line_2d(start_pos, end_pos, selection_color);
                 }
+
+                current_distance += pattern_length;
             }
-        };
+        }
+    };
 
-        // Draw animated dashed rectangle border
-        draw_dashed_line(gizmos, top_left, top_right, time_offset);
-        draw_dashed_line(gizmos, top_right, bottom_right, time_offset);
-        draw_dashed_line(gizmos, bottom_right, bottom_left, time_offset);
-        draw_dashed_line(gizmos, bottom_left, top_left, time_offset);
-    }
-
-    // Draw animated selection rectangle
-    render_animated_selection_rectangle(
-        &mut gizmos,
-        input_state.drag_start_pos,
-        cursor_pos.0,
-        &config,
-        &time,
-    );
+    // Draw animated dashed rectangle border
+    draw_dashed_line(gizmos, top_left, top_right, time_offset);
+    draw_dashed_line(gizmos, top_right, bottom_right, time_offset);
+    draw_dashed_line(gizmos, bottom_right, bottom_left, time_offset);
+    draw_dashed_line(gizmos, bottom_left, top_left, time_offset);
 }
