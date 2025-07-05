@@ -82,7 +82,7 @@ fn update_cursor_world_position(
 }
 
 fn handle_cursor_input(
-    mut input_state: ResMut<CursorState>,
+    mut cursor_state: ResMut<CursorState>,
     cursor_input: Res<ButtonInput<MouseButton>>,
     cursor_pos: Res<CursorWorldPos>,
     config: Res<CursorConfig>,
@@ -92,33 +92,33 @@ fn handle_cursor_input(
     let just_released = cursor_input.just_released(MouseButton::Left);
 
     if just_pressed {
-        input_state.drag_start_pos = cursor_pos.0;
-        input_state.dragging = false;
+        cursor_state.drag_start_pos = cursor_pos.0;
+        cursor_state.dragging = false;
     }
 
     if pressed
-        && !input_state.dragging
-        && cursor_pos.0.distance(input_state.drag_start_pos) > config.drag_threshold
+        && !cursor_state.dragging
+        && cursor_pos.0.distance(cursor_state.drag_start_pos) > config.drag_threshold
     {
-        input_state.dragging = true;
+        cursor_state.dragging = true;
     }
 
     if just_released {
-        input_state.dragging = false;
+        cursor_state.dragging = false;
     }
-    input_state.cursor_just_pressed = just_pressed;
+    cursor_state.cursor_just_pressed = just_pressed;
 }
 
-fn debug_cursor_position(cursor_pos: Res<CursorWorldPos>, input_state: Res<CursorState>) {
-    if input_state.cursor_just_pressed {
+fn debug_cursor_position(cursor_pos: Res<CursorWorldPos>, cursor_state: Res<CursorState>) {
+    if cursor_state.cursor_just_pressed {
         debug!("Cursor clicked at: {:?}", cursor_pos.0);
     }
 }
 
 // disable system cursor when dragging (and instead show our dragging cursor)
-fn manage_cursor_visibility(input_state: Res<CursorState>, mut windows: Query<&mut Window>) {
+fn manage_cursor_visibility(cursor_state: Res<CursorState>, mut windows: Query<&mut Window>) {
     if let Ok(mut window) = windows.get_single_mut() {
         // Hide system cursor when dragging, show it otherwise
-        window.cursor.visible = !input_state.dragging;
+        window.cursor.visible = !cursor_state.dragging;
     }
 }

@@ -48,7 +48,7 @@ impl Plugin for SelectionPlugin {
 
 fn handle_point_selection(
     mut commands: Commands,
-    input_state: Res<CursorState>,
+    cursor_state: Res<CursorState>,
     cursor_pos: Res<CursorWorldPos>,
     tool_state: Res<ToolState>,
     config: Res<SelectionConfig>,
@@ -60,7 +60,7 @@ fn handle_point_selection(
         return;
     }
 
-    if !input_state.cursor_just_pressed {
+    if !cursor_state.cursor_just_pressed {
         return;
     }
 

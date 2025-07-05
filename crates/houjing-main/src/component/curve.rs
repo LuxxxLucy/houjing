@@ -38,12 +38,15 @@ pub struct CurveRenderingPlugin;
 impl Plugin for CurveRenderingPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CurveRenderingConfig>()
-            .add_systems(Update, (render_curves, update_curve_meshes).in_set(ShowSet))
+            .add_systems(
+                Update,
+                (create_new_curves, update_curve_if_needed).in_set(ShowSet),
+            )
             .add_systems(Startup, setup_test_curve);
     }
 }
 
-fn render_curves(
+fn create_new_curves(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
@@ -64,7 +67,7 @@ fn render_curves(
     }
 }
 
-fn update_curve_meshes(
+fn update_curve_if_needed(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     config: Res<CurveRenderingConfig>,
@@ -145,7 +148,7 @@ mod tests {
             .init_resource::<Assets<Mesh>>()
             .init_resource::<Assets<ColorMaterial>>()
             .init_resource::<CurveRenderingConfig>()
-            .add_systems(Update, (render_curves, update_curve_meshes));
+            .add_systems(Update, (create_new_curves, update_curve_if_needed));
 
         // Create a test curve
         let initial_points = vec![

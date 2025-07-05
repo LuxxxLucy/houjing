@@ -38,7 +38,7 @@ impl Plugin for DragPlugin {
 }
 
 fn handle_selected_point_dragging(
-    input_state: Res<CursorState>,
+    cursor_state: Res<CursorState>,
     cursor_pos: Res<CursorWorldPos>,
     mut commands: Commands,
     selected_query: Query<&SelectedControlPoint>,
@@ -46,7 +46,7 @@ fn handle_selected_point_dragging(
     mut original_states: ResMut<OriginalCurveStates>,
 ) {
     // Capture original curve states when dragging starts with selected points
-    if input_state.dragging && original_states.curves.is_empty() && !selected_query.is_empty() {
+    if cursor_state.dragging && original_states.curves.is_empty() && !selected_query.is_empty() {
         debug!(
             "Capturing original curve states for {} selected points",
             selected_query.iter().count()
@@ -67,7 +67,7 @@ fn handle_selected_point_dragging(
     }
 
     // Clear original states when dragging ends
-    if !input_state.dragging {
+    if !cursor_state.dragging {
         original_states.curves.clear();
         return;
     }
@@ -90,13 +90,13 @@ fn handle_selected_point_dragging(
 fn render_selected_point_drag(
     mut gizmos: Gizmos,
     cursor_pos: Res<CursorWorldPos>,
-    input_state: Res<CursorState>,
+    cursor_state: Res<CursorState>,
     config: Res<CursorVisualizationConfig>,
     selected_query: Query<&SelectedControlPoint>,
     original_states: Res<OriginalCurveStates>,
 ) {
     // Only show when dragging and points are selected
-    if !input_state.dragging || selected_query.is_empty() {
+    if !cursor_state.dragging || selected_query.is_empty() {
         return;
     }
 
@@ -168,7 +168,7 @@ fn render_selected_point_drag(
     render_diamond_cursor(&mut gizmos, cursor_pos.0, &config);
 
     // Draw drag start position indicator
-    render_drag_start_indicator(&mut gizmos, input_state.drag_start_pos, &config);
+    render_drag_start_indicator(&mut gizmos, cursor_state.drag_start_pos, &config);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -176,7 +176,7 @@ fn render_selected_rectangle_drag(
     mut commands: Commands,
     mut gizmos: Gizmos,
     cursor_pos: Res<CursorWorldPos>,
-    input_state: Res<CursorState>,
+    cursor_state: Res<CursorState>,
     config: Res<CursorVisualizationConfig>,
     selected_query: Query<&SelectedControlPoint>,
     time: Res<Time>,
@@ -185,10 +185,10 @@ fn render_selected_rectangle_drag(
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut rect_query: Query<&mut Transform, With<DragRectangle>>,
 ) {
-    let should_show_rectangle = input_state.dragging && selected_query.is_empty();
+    let should_show_rectangle = cursor_state.dragging && selected_query.is_empty();
 
     if should_show_rectangle {
-        let start = input_state.drag_start_pos;
+        let start = cursor_state.drag_start_pos;
         let end = cursor_pos.0;
 
         // Render filled background
