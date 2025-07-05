@@ -2,101 +2,152 @@ use super::cursor::{CursorState, CursorWorldPos};
 use super::select::SelectedControlPoint;
 use crate::component::curve::{BezierCurve, CurveNeedsUpdate};
 use crate::systems::tools::cursor::CursorVisualizationConfig;
-use crate::{EditSet, ShowSet};
+use crate::{InputSet, ShowSet};
 use bevy::prelude::*;
 use bevy::sprite::{ColorMaterial, ColorMesh2dBundle};
 use std::collections::HashMap;
 
-// used to store the original curve before drag (moving selected pont)
 #[derive(Resource, Default)]
-pub struct OriginalCurveStates {
-    pub curves: HashMap<Entity, Vec<Vec2>>,
+pub struct DragState {
+    /// Drag state when there is no selected point
+    pub rectangle: NoSelectedPointDragState,
+    /// Drag state when there is a selected point
+    pub selected_points: SelectedPointDragState,
 }
 
-// used in showing rectangle in dragging (without an already selected point)
-#[derive(Resource, Default)]
-pub struct DragRectangleEntity {
+#[derive(Default)]
+pub struct SelectedPointDragState {
+    /// Original curve states before dragging
+    pub original_curves: HashMap<Entity, Vec<Vec2>>,
+    /// Current positions of selected points during drag
+    pub current_positions: HashMap<(Entity, usize), Vec2>,
+    /// Whether point dragging is active
+    pub is_active: bool,
+}
+
+#[derive(Default)]
+pub struct NoSelectedPointDragState {
+    /// Entity of the rectangle mesh
     pub entity: Option<Entity>,
+    /// Current rectangle
+    pub rect: Option<DragRect>,
 }
 
-// used in showing rectangle in dragging (without an already selected point)
+/// Rectangle for drag selection
+#[derive(Clone, Copy)]
+pub struct DragRect {
+    pub origin: Vec2,
+    pub width: f32,
+    pub height: f32,
+}
+
+/// Component marker for no selected point drag rectangle entity
 #[derive(Component)]
-pub struct DragRectangle;
+pub struct NoSelectedPointDragRectangle;
 
 pub struct DragPlugin;
 
 impl Plugin for DragPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<OriginalCurveStates>()
-            .init_resource::<DragRectangleEntity>()
-            .add_systems(Update, (handle_selected_point_dragging,).in_set(EditSet))
+        app.init_resource::<DragState>()
             .add_systems(
                 Update,
-                (render_selected_point_drag, render_selected_rectangle_drag).in_set(ShowSet),
+                (
+                    handle_selected_point_drag_state,
+                    handle_no_selected_point_drag_state,
+                )
+                    .in_set(InputSet),
+            )
+            .add_systems(
+                Update,
+                (render_selected_point_drag, render_no_selected_point_drag).in_set(ShowSet),
             );
     }
 }
 
-fn handle_selected_point_dragging(
+fn handle_selected_point_drag_state(
     cursor_state: Res<CursorState>,
     cursor_pos: Res<CursorWorldPos>,
     mut commands: Commands,
     selected_query: Query<&SelectedControlPoint>,
     mut curve_query: Query<&mut BezierCurve>,
-    mut original_states: ResMut<OriginalCurveStates>,
+    mut drag_state: ResMut<DragState>,
 ) {
-    // Capture original curve states when dragging starts with selected points
-    if cursor_state.dragging && original_states.curves.is_empty() && !selected_query.is_empty() {
-        debug!(
-            "Capturing original curve states for {} selected points",
-            selected_query.iter().count()
-        );
+    let has_selected_points = !selected_query.is_empty();
+    let is_dragging = cursor_state.dragging && has_selected_points;
+
+    if is_dragging {
+        // Initialize original curves if not already done
+        if drag_state.selected_points.original_curves.is_empty() {
+            debug!(
+                "Capturing original curve states for {} selected points",
+                selected_query.iter().count()
+            );
+            for selected_point in selected_query.iter() {
+                if let Ok(curve) = curve_query.get(selected_point.curve_entity) {
+                    debug!(
+                        "Storing original state for curve entity {:?} with {} control points",
+                        selected_point.curve_entity,
+                        curve.control_points.len()
+                    );
+                    drag_state
+                        .selected_points
+                        .original_curves
+                        .insert(selected_point.curve_entity, curve.control_points.clone());
+                }
+            }
+            debug!(
+                "Total curves stored: {}",
+                drag_state.selected_points.original_curves.len()
+            );
+        }
+
+        // Update current positions for selected points
         for selected_point in selected_query.iter() {
-            if let Ok(curve) = curve_query.get(selected_point.curve_entity) {
-                debug!(
-                    "Storing original state for curve entity {:?} with {} control points",
-                    selected_point.curve_entity,
-                    curve.control_points.len()
-                );
-                original_states
-                    .curves
-                    .insert(selected_point.curve_entity, curve.control_points.clone());
+            let key = (selected_point.curve_entity, selected_point.point_index);
+            drag_state
+                .selected_points
+                .current_positions
+                .insert(key, cursor_pos.0);
+        }
+
+        drag_state.selected_points.is_active = true;
+
+        // Update curve points using current positions from drag state
+        for selected_point in selected_query.iter() {
+            if let Ok(mut curve) = curve_query.get_mut(selected_point.curve_entity) {
+                if let Some(point) = curve.control_points.get_mut(selected_point.point_index) {
+                    let key = (selected_point.curve_entity, selected_point.point_index);
+                    if let Some(&current_pos) =
+                        drag_state.selected_points.current_positions.get(&key)
+                    {
+                        *point = current_pos;
+
+                        // Mark curve for mesh update
+                        commands
+                            .entity(selected_point.curve_entity)
+                            .insert(CurveNeedsUpdate);
+                    }
+                }
             }
         }
-        debug!("Total curves stored: {}", original_states.curves.len());
-    }
-
-    // Clear original states when dragging ends
-    if !cursor_state.dragging {
-        original_states.curves.clear();
-        return;
-    }
-
-    // Update curve points during drag
-    for selected_point in selected_query.iter() {
-        if let Ok(mut curve) = curve_query.get_mut(selected_point.curve_entity) {
-            if let Some(point) = curve.control_points.get_mut(selected_point.point_index) {
-                *point = cursor_pos.0;
-
-                // Mark curve for mesh update
-                commands
-                    .entity(selected_point.curve_entity)
-                    .insert(CurveNeedsUpdate);
-            }
-        }
+    } else {
+        // Clear state when not dragging
+        drag_state.selected_points.original_curves.clear();
+        drag_state.selected_points.current_positions.clear();
+        drag_state.selected_points.is_active = false;
     }
 }
 
 fn render_selected_point_drag(
     mut gizmos: Gizmos,
-    cursor_pos: Res<CursorWorldPos>,
     cursor_state: Res<CursorState>,
     config: Res<CursorVisualizationConfig>,
     selected_query: Query<&SelectedControlPoint>,
-    original_states: Res<OriginalCurveStates>,
+    drag_state: Res<DragState>,
 ) {
-    // Only show when dragging and points are selected
-    if !cursor_state.dragging || selected_query.is_empty() {
+    // Only show when dragging is active
+    if !drag_state.selected_points.is_active {
         return;
     }
 
@@ -158,128 +209,161 @@ fn render_selected_point_drag(
     }
 
     // Render original curves as low-opacity lines
-    if !original_states.curves.is_empty() {
-        for original_curve_points in original_states.curves.values() {
+    if !drag_state.selected_points.original_curves.is_empty() {
+        for original_curve_points in drag_state.selected_points.original_curves.values() {
             render_original_curve(&mut gizmos, original_curve_points, &config);
         }
     }
 
-    // Draw diamond cursor at current position
-    render_diamond_cursor(&mut gizmos, cursor_pos.0, &config);
+    // Draw diamond cursors at current positions of selected points
+    for selected_point in selected_query.iter() {
+        let key = (selected_point.curve_entity, selected_point.point_index);
+        if let Some(&current_pos) = drag_state.selected_points.current_positions.get(&key) {
+            render_diamond_cursor(&mut gizmos, current_pos, &config);
+        }
+    }
 
     // Draw drag start position indicator
     render_drag_start_indicator(&mut gizmos, cursor_state.drag_start_pos, &config);
 }
 
-#[allow(clippy::too_many_arguments)]
-fn render_selected_rectangle_drag(
-    mut commands: Commands,
-    mut gizmos: Gizmos,
-    cursor_pos: Res<CursorWorldPos>,
+fn handle_no_selected_point_drag_state(
     cursor_state: Res<CursorState>,
-    config: Res<CursorVisualizationConfig>,
+    cursor_pos: Res<CursorWorldPos>,
     selected_query: Query<&SelectedControlPoint>,
-    time: Res<Time>,
-    mut drag_rect: ResMut<DragRectangleEntity>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-    mut rect_query: Query<&mut Transform, With<DragRectangle>>,
+    mut drag_state: ResMut<DragState>,
 ) {
-    let should_show_rectangle = cursor_state.dragging && selected_query.is_empty();
+    let should_have_no_selected_point_drag = cursor_state.dragging && selected_query.is_empty();
 
-    if should_show_rectangle {
+    if should_have_no_selected_point_drag {
+        // Calculate no selected point drag rectangle
         let start = cursor_state.drag_start_pos;
         let end = cursor_pos.0;
+        let min_x = start.x.min(end.x);
+        let max_x = start.x.max(end.x);
+        let min_y = start.y.min(end.y);
+        let max_y = start.y.max(end.y);
 
-        // Render filled background
-        render_rectangle_fill(
-            &mut commands,
-            start,
-            end,
-            &config,
-            &mut drag_rect,
-            &mut meshes,
-            &mut materials,
-            &mut rect_query,
-        );
-
-        // Render animated wireframe
-        render_rectangle_wireframe(&mut gizmos, start, end, &config, &time);
-    } else if let Some(entity) = drag_rect.entity {
-        // Remove rectangle when not dragging
-        commands.entity(entity).despawn();
-        drag_rect.entity = None;
+        drag_state.rectangle.rect = Some(DragRect {
+            origin: Vec2::new(min_x, min_y),
+            width: max_x - min_x,
+            height: max_y - min_y,
+        });
+    } else {
+        drag_state.rectangle.rect = None;
     }
 }
 
 #[allow(clippy::too_many_arguments)]
-fn render_rectangle_fill(
+fn render_no_selected_point_drag(
+    mut commands: Commands,
+    mut gizmos: Gizmos,
+    config: Res<CursorVisualizationConfig>,
+    time: Res<Time>,
+    mut drag_state: ResMut<DragState>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut no_selected_point_drag_query: Query<&mut Transform, With<NoSelectedPointDragRectangle>>,
+) {
+    if let Some(no_selected_point_drag_rect) = drag_state.rectangle.rect {
+        // Render no selected point drag filled background
+        render_no_selected_point_drag_fill(
+            &mut commands,
+            no_selected_point_drag_rect,
+            &config,
+            &mut drag_state.rectangle,
+            &mut meshes,
+            &mut materials,
+            &mut no_selected_point_drag_query,
+        );
+
+        // Render no selected point drag animated wireframe
+        render_no_selected_point_drag_wireframe(
+            &mut gizmos,
+            no_selected_point_drag_rect,
+            &config,
+            &time,
+        );
+    } else if let Some(entity) = drag_state.rectangle.entity {
+        // Remove no selected point drag rectangle when not dragging
+        commands.entity(entity).despawn();
+        drag_state.rectangle.entity = None;
+    }
+}
+
+fn render_no_selected_point_drag_fill(
     commands: &mut Commands,
-    start: Vec2,
-    end: Vec2,
+    no_selected_point_drag_rect: DragRect,
     config: &CursorVisualizationConfig,
-    drag_rect: &mut DragRectangleEntity,
+    no_selected_point_drag_state: &mut NoSelectedPointDragState,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<ColorMaterial>,
-    rect_query: &mut Query<&mut Transform, With<DragRectangle>>,
+    no_selected_point_drag_query: &mut Query<&mut Transform, With<NoSelectedPointDragRectangle>>,
 ) {
-    // Calculate rectangle bounds
-    let min_x = start.x.min(end.x);
-    let max_x = start.x.max(end.x);
-    let min_y = start.y.min(end.y);
-    let max_y = start.y.max(end.y);
-
-    let center = Vec2::new((min_x + max_x) / 2.0, (min_y + max_y) / 2.0);
-    let size = Vec2::new(max_x - min_x, max_y - min_y);
-
-    if let Some(entity) = drag_rect.entity {
-        // Update existing rectangle
-        if let Ok(mut transform) = rect_query.get_mut(entity) {
+    if let Some(entity) = no_selected_point_drag_state.entity {
+        // Update existing no selected point drag rectangle
+        if let Ok(mut transform) = no_selected_point_drag_query.get_mut(entity) {
+            let center = Vec2::new(
+                no_selected_point_drag_rect.origin.x + no_selected_point_drag_rect.width / 2.0,
+                no_selected_point_drag_rect.origin.y + no_selected_point_drag_rect.height / 2.0,
+            );
             transform.translation = center.extend(0.0);
-            transform.scale = size.extend(1.0);
+            transform.scale = Vec2::new(
+                no_selected_point_drag_rect.width,
+                no_selected_point_drag_rect.height,
+            )
+            .extend(1.0);
         }
     } else {
-        // Create new rectangle
+        // Create new no selected point drag rectangle
         let background_color = config.drag_color.with_a(0.1);
         let material = materials.add(ColorMaterial::from(background_color));
         let mesh = meshes.add(Rectangle::new(1.0, 1.0));
 
+        let center = Vec2::new(
+            no_selected_point_drag_rect.origin.x + no_selected_point_drag_rect.width / 2.0,
+            no_selected_point_drag_rect.origin.y + no_selected_point_drag_rect.height / 2.0,
+        );
         let entity = commands
             .spawn((
                 ColorMesh2dBundle {
                     mesh: mesh.into(),
                     material,
-                    transform: Transform::from_translation(center.extend(0.0))
-                        .with_scale(size.extend(1.0)),
+                    transform: Transform::from_translation(center.extend(0.0)).with_scale(
+                        Vec2::new(
+                            no_selected_point_drag_rect.width,
+                            no_selected_point_drag_rect.height,
+                        )
+                        .extend(1.0),
+                    ),
                     ..default()
                 },
-                DragRectangle,
+                NoSelectedPointDragRectangle,
             ))
             .id();
 
-        drag_rect.entity = Some(entity);
+        no_selected_point_drag_state.entity = Some(entity);
     }
 }
 
-fn render_rectangle_wireframe(
+fn render_no_selected_point_drag_wireframe(
     gizmos: &mut Gizmos,
-    start: Vec2,
-    end: Vec2,
+    no_selected_point_drag_rect: DragRect,
     config: &CursorVisualizationConfig,
     time: &Time,
 ) {
-    // Calculate rectangle corners
-    let min_x = start.x.min(end.x);
-    let max_x = start.x.max(end.x);
-    let min_y = start.y.min(end.y);
-    let max_y = start.y.max(end.y);
+    // Calculate no selected point drag rectangle corners from rect
+    let min_x = no_selected_point_drag_rect.origin.x;
+    let max_x = no_selected_point_drag_rect.origin.x + no_selected_point_drag_rect.width;
+    let min_y = no_selected_point_drag_rect.origin.y;
+    let max_y = no_selected_point_drag_rect.origin.y + no_selected_point_drag_rect.height;
 
     let top_left = Vec2::new(min_x, max_y);
     let top_right = Vec2::new(max_x, max_y);
     let bottom_right = Vec2::new(max_x, min_y);
     let bottom_left = Vec2::new(min_x, min_y);
 
-    // Animation parameters for rectangle border
+    // Animation parameters for no selected point drag rectangle border
     let dash_length = 6.0;
     let gap_length = 4.0;
     let pattern_length = dash_length + gap_length;
@@ -311,7 +395,7 @@ fn render_rectangle_wireframe(
         }
     };
 
-    // Draw animated dashed rectangle border
+    // Draw animated dashed no selected point drag rectangle border
     draw_dashed_line(gizmos, top_left, top_right, time_offset);
     draw_dashed_line(gizmos, top_right, bottom_right, time_offset);
     draw_dashed_line(gizmos, bottom_right, bottom_left, time_offset);
