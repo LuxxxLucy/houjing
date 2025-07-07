@@ -1,4 +1,5 @@
 mod component;
+mod rendering;
 mod systems;
 
 use bevy::prelude::*;

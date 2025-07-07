@@ -1,9 +1,9 @@
 use super::cursor::*;
 use super::tool::{Tool, ToolState};
 use crate::component::curve::BezierCurve;
+use crate::rendering::render_simple_circle;
 use crate::{EditSet, ShowSet};
 use bevy::prelude::*;
-use bevy::sprite::{MaterialMesh2dBundle, Mesh2dHandle};
 use log::debug;
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -182,21 +182,18 @@ fn render_curve_creation_points(
 
     // Render new points
     for point_pos in points_to_render {
-        let circle_mesh = Circle::new(config.point_radius);
-        let mesh_handle = meshes.add(circle_mesh);
-        let material_handle = materials.add(ColorMaterial::from(config.point_color));
+        let entity = render_simple_circle(
+            &mut commands,
+            &mut meshes,
+            &mut materials,
+            point_pos,
+            config.point_radius,
+            config.point_color,
+            config.z_layer,
+        );
 
-        let entity = commands
-            .spawn((
-                MaterialMesh2dBundle {
-                    mesh: Mesh2dHandle(mesh_handle),
-                    material: material_handle,
-                    transform: Transform::from_translation(point_pos.extend(config.z_layer)),
-                    ..default()
-                },
-                CurveCreationPoint,
-            ))
-            .id();
+        // Add the component marker
+        commands.entity(entity).insert(CurveCreationPoint);
 
         // Store entity in our state
         curve_creation_state.point_entities.push(entity);

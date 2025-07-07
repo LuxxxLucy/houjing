@@ -37,12 +37,10 @@ pub struct CurveRenderingPlugin;
 
 impl Plugin for CurveRenderingPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<CurveRenderingConfig>()
-            .add_systems(
-                Update,
-                (create_new_curves, update_curve_if_needed).in_set(ShowSet),
-            )
-            .add_systems(Startup, setup_test_curve);
+        app.init_resource::<CurveRenderingConfig>().add_systems(
+            Update,
+            (create_new_curves, update_curve_if_needed).in_set(ShowSet),
+        );
     }
 }
 
@@ -192,16 +190,6 @@ mod tests {
     }
 }
 
-// remove it?
-fn setup_test_curve(mut commands: Commands) {
-    let curve = BezierCurve::new(vec![
-        Vec2::new(-200.0, 0.0),
-        Vec2::new(0.0, 200.0),
-        Vec2::new(200.0, 0.0),
-    ]);
-
-    commands.spawn(curve);
-}
 impl BezierCurve {
     pub fn new(control_points: Vec<Vec2>) -> Self {
         Self { control_points }

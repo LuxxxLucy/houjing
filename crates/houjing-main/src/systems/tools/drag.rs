@@ -2,10 +2,11 @@ use super::cursor::{CursorState, CursorWorldPos};
 use super::select::SelectedControlPoint;
 use super::tool::{Tool, ToolState};
 use crate::component::curve::{BezierCurve, CurveNeedsUpdate};
+use crate::rendering::render_simple_rectangle;
 use crate::systems::tools::cursor::CursorVisualizationConfig;
 use crate::{InputSet, ShowSet};
 use bevy::prelude::*;
-use bevy::sprite::{ColorMaterial, ColorMesh2dBundle};
+use bevy::sprite::ColorMaterial;
 use std::collections::HashMap;
 
 #[derive(Resource, Default)]
@@ -378,31 +379,27 @@ fn render_no_selected_point_drag_fill(
     } else {
         // Create new no selected point drag rectangle
         let background_color = config.drag_color.with_a(0.1);
-        let material = materials.add(ColorMaterial::from(background_color));
-        let mesh = meshes.add(Rectangle::new(1.0, 1.0));
-
         let center = Vec2::new(
             no_selected_point_drag_rect.origin.x + no_selected_point_drag_rect.width / 2.0,
             no_selected_point_drag_rect.origin.y + no_selected_point_drag_rect.height / 2.0,
         );
-        let entity = commands
-            .spawn((
-                ColorMesh2dBundle {
-                    mesh: mesh.into(),
-                    material,
-                    transform: Transform::from_translation(center.extend(0.0)).with_scale(
-                        Vec2::new(
-                            no_selected_point_drag_rect.width,
-                            no_selected_point_drag_rect.height,
-                        )
-                        .extend(1.0),
-                    ),
-                    ..default()
-                },
-                NoSelectedPointDragRectangle,
-            ))
-            .id();
+        let size = Vec2::new(
+            no_selected_point_drag_rect.width,
+            no_selected_point_drag_rect.height,
+        );
 
+        let entity = render_simple_rectangle(
+            commands,
+            meshes,
+            materials,
+            center,
+            size,
+            background_color,
+            0.0,
+        );
+
+        // Add the component marker
+        commands.entity(entity).insert(NoSelectedPointDragRectangle);
         no_selected_point_drag_state.entity = Some(entity);
     }
 }

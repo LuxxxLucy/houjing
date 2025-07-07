@@ -1,6 +1,8 @@
 use crate::InputSet;
 use bevy::prelude::*;
 
+use super::tool::{Tool, ToolState};
+
 #[derive(Resource, Default)]
 pub struct CursorWorldPos(pub Vec2);
 
@@ -115,10 +117,16 @@ fn debug_cursor_position(cursor_pos: Res<CursorWorldPos>, cursor_state: Res<Curs
     }
 }
 
-// disable system cursor when dragging (and instead show our dragging cursor)
-fn manage_cursor_visibility(cursor_state: Res<CursorState>, mut windows: Query<&mut Window>) {
+// disable system cursor when dragging (except for hand tool which needs visible cursor)
+fn manage_cursor_visibility(
+    cursor_state: Res<CursorState>,
+    tool_state: Res<ToolState>,
+    mut windows: Query<&mut Window>,
+) {
     if let Ok(mut window) = windows.get_single_mut() {
-        // Hide system cursor when dragging, show it otherwise
-        window.cursor.visible = !cursor_state.dragging;
+        // Hide system cursor when dragging, UNLESS using hand tool which needs visible cursor
+        let should_hide_cursor =
+            cursor_state.dragging && !tool_state.is_currently_using_tool(Tool::Hand);
+        window.cursor.visible = !should_hide_cursor;
     }
 }
