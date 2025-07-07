@@ -11,6 +11,25 @@ pub struct SelectedControlPoint {
     pub point_index: usize,
 }
 
+#[derive(Resource, Default)]
+pub struct SelectionToolState {
+    pub selected_points: Vec<SelectedControlPoint>,
+}
+
+impl SelectionToolState {
+    pub fn reset(
+        &mut self,
+        commands: &mut Commands,
+        selected_query: &Query<Entity, With<SelectedControlPoint>>,
+    ) {
+        // Clear any existing selection entities
+        for entity in selected_query.iter() {
+            commands.entity(entity).despawn();
+        }
+        self.selected_points.clear();
+    }
+}
+
 // Default selection configuration constants
 const DEFAULT_CONTROL_POINT_COLOR: Color = Color::RED;
 const DEFAULT_SELECTED_POINT_COLOR: Color = Color::YELLOW;
@@ -40,23 +59,27 @@ pub struct SelectionPlugin;
 
 impl Plugin for SelectionPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<SelectionConfig>()
+        app.init_resource::<SelectionToolState>()
+            .init_resource::<SelectionConfig>()
             .add_systems(Update, (handle_point_selection,).in_set(InputSet))
             .add_systems(Update, (render_selection_control_points,).in_set(ShowSet));
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_point_selection(
     mut commands: Commands,
     cursor_state: Res<CursorState>,
     cursor_pos: Res<CursorWorldPos>,
     tool_state: Res<ToolState>,
+    mut selection_state: ResMut<SelectionToolState>,
     config: Res<SelectionConfig>,
     curve_query: Query<(Entity, &BezierCurve)>,
     selected_query: Query<Entity, With<SelectedControlPoint>>,
 ) {
-    // Only handle selection when in select tool
-    if tool_state.current_tool != Tool::Select {
+    // Check if tool is active, reset state if not
+    if !tool_state.is_currently_using_tool(Tool::Select) {
+        selection_state.reset(&mut commands, &selected_query);
         return;
     }
 
@@ -65,9 +88,7 @@ fn handle_point_selection(
     }
 
     // Clear existing selections
-    for entity in selected_query.iter() {
-        commands.entity(entity).despawn();
-    }
+    selection_state.reset(&mut commands, &selected_query);
 
     // Find closest control point
     let mut closest_point = None;
@@ -85,10 +106,19 @@ fn handle_point_selection(
 
     // Select closest point if found
     if let Some((curve_entity, point_index)) = closest_point {
-        commands.spawn(SelectedControlPoint {
+        let selected_point = SelectedControlPoint {
+            curve_entity,
+            point_index,
+        };
+
+        // Add to our state
+        selection_state.selected_points.push(SelectedControlPoint {
             curve_entity,
             point_index,
         });
+
+        // Spawn entity for other systems to query
+        commands.spawn(selected_point);
         debug!("Selected control point {point_index} of curve {curve_entity:?}");
     }
 }

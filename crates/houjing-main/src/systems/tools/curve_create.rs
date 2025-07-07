@@ -18,13 +18,20 @@ pub struct CurveCreationToolState {
     pub curve_creation_points: Vec<Vec2>,
     pub curve_creation_state: CurveCreationState,
     pub last_point: Option<Vec2>,
+    pub point_entities: Vec<Entity>,
 }
 
 impl CurveCreationToolState {
-    pub fn reset(&mut self) {
-        self.curve_creation_points.clear();
+    pub fn reset(&mut self, commands: &mut Commands) {
+        // Clear all point entities when resetting
+        for &entity in &self.point_entities {
+            commands.entity(entity).despawn();
+        }
+
         self.curve_creation_state = CurveCreationState::Idle;
+        self.curve_creation_points.clear();
         self.last_point = None;
+        self.point_entities.clear();
     }
 }
 
@@ -71,7 +78,9 @@ fn handle_curve_creation(
     cursor_pos: Res<CursorWorldPos>,
     config: Res<CurveCreationConfig>,
 ) {
-    if tool_state.current_tool != Tool::CreateCurve {
+    // Check if tool is active, reset state if not
+    if !tool_state.is_currently_using_tool(Tool::CreateCurve) {
+        curve_creation_state.reset(&mut commands);
         return;
     }
 
@@ -89,7 +98,7 @@ fn handle_curve_creation(
 
     debug!(
         "DEBUG: Tool: {:?}, State: {:?}, Points: {}/4",
-        tool_state.current_tool,
+        tool_state.current(),
         curve_creation_state.curve_creation_state,
         curve_creation_state.curve_creation_points.len()
     );
@@ -98,7 +107,7 @@ fn handle_curve_creation(
         CurveCreationState::Idle => {
             // Start collecting points - should have 0 points here
             debug!("DEBUG: In Idle state, clearing points and starting new curve");
-            curve_creation_state.reset(); // Ensure we start fresh
+            curve_creation_state.reset(&mut commands);
             curve_creation_state
                 .curve_creation_points
                 .push(cursor_pos.0);
@@ -123,7 +132,7 @@ fn handle_curve_creation(
                 commands.spawn(curve);
 
                 // Reset state for next curve
-                curve_creation_state.reset();
+                curve_creation_state.reset(&mut commands);
                 debug!("Created cubic Bézier curve! State reset to Idle. Ready for next curve.")
             }
         }
@@ -135,24 +144,18 @@ fn render_curve_creation_points(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     tool_state: Res<ToolState>,
-    curve_creation_state: Res<CurveCreationToolState>,
+    mut curve_creation_state: ResMut<CurveCreationToolState>,
     config: Res<CurveCreationConfig>,
     existing_points: Query<(Entity, &CurveCreationPoint)>,
 ) {
     // Clear existing creation points if not in create mode
-    if tool_state.current_tool != Tool::CreateCurve {
-        for (entity, _) in existing_points.iter() {
-            commands.entity(entity).despawn();
-        }
+    if !tool_state.is_currently_using_tool(Tool::CreateCurve) {
+        curve_creation_state.reset(&mut commands);
         return;
     }
 
     // Only render if we have points
     if curve_creation_state.curve_creation_points.is_empty() {
-        // Clear existing points if we have none
-        for (entity, _) in existing_points.iter() {
-            commands.entity(entity).despawn();
-        }
         return;
     }
 
@@ -168,26 +171,35 @@ fn render_curve_creation_points(
         curve_creation_state.curve_creation_points.len()
     );
 
-    // Clear existing creation points
+    // Clear existing creation points and state entities
     for (entity, _) in existing_points.iter() {
         commands.entity(entity).despawn();
     }
+    curve_creation_state.point_entities.clear();
+
+    // Collect points to avoid borrow checker issues
+    let points_to_render: Vec<Vec2> = curve_creation_state.curve_creation_points.clone();
 
     // Render new points
-    for &point_pos in curve_creation_state.curve_creation_points.iter() {
+    for point_pos in points_to_render {
         let circle_mesh = Circle::new(config.point_radius);
         let mesh_handle = meshes.add(circle_mesh);
         let material_handle = materials.add(ColorMaterial::from(config.point_color));
 
-        commands.spawn((
-            MaterialMesh2dBundle {
-                mesh: Mesh2dHandle(mesh_handle),
-                material: material_handle,
-                transform: Transform::from_translation(point_pos.extend(config.z_layer)),
-                ..default()
-            },
-            CurveCreationPoint,
-        ));
+        let entity = commands
+            .spawn((
+                MaterialMesh2dBundle {
+                    mesh: Mesh2dHandle(mesh_handle),
+                    material: material_handle,
+                    transform: Transform::from_translation(point_pos.extend(config.z_layer)),
+                    ..default()
+                },
+                CurveCreationPoint,
+            ))
+            .id();
+
+        // Store entity in our state
+        curve_creation_state.point_entities.push(entity);
     }
 }
 

@@ -1,5 +1,6 @@
 use super::cursor::{CursorState, CursorWorldPos};
 use super::select::SelectedControlPoint;
+use super::tool::{Tool, ToolState};
 use crate::component::curve::{BezierCurve, CurveNeedsUpdate};
 use crate::systems::tools::cursor::CursorVisualizationConfig;
 use crate::{InputSet, ShowSet};
@@ -8,11 +9,18 @@ use bevy::sprite::{ColorMaterial, ColorMesh2dBundle};
 use std::collections::HashMap;
 
 #[derive(Resource, Default)]
-pub struct DragState {
+pub struct DragToolState {
     /// Drag state when there is no selected point
     pub rectangle: NoSelectedPointDragState,
     /// Drag state when there is a selected point
     pub selected_points: SelectedPointDragState,
+}
+
+impl DragToolState {
+    pub fn reset(&mut self, commands: &mut Commands) {
+        self.selected_points.reset(commands);
+        self.rectangle.reset(commands);
+    }
 }
 
 #[derive(Default)]
@@ -25,12 +33,33 @@ pub struct SelectedPointDragState {
     pub is_active: bool,
 }
 
+impl SelectedPointDragState {
+    /// Reset the selected point drag state
+    fn reset(&mut self, _commands: &mut Commands) {
+        self.original_curves.clear();
+        self.current_positions.clear();
+        self.is_active = false;
+    }
+}
+
 #[derive(Default)]
 pub struct NoSelectedPointDragState {
     /// Entity of the rectangle mesh
     pub entity: Option<Entity>,
     /// Current rectangle
     pub rect: Option<DragRect>,
+}
+
+impl NoSelectedPointDragState {
+    /// Reset the no selected point drag state
+    fn reset(&mut self, commands: &mut Commands) {
+        // Clear entity if it exists
+        if let Some(entity) = self.entity {
+            commands.entity(entity).despawn();
+        }
+        self.entity = None;
+        self.rect = None;
+    }
 }
 
 /// Rectangle for drag selection
@@ -49,7 +78,7 @@ pub struct DragPlugin;
 
 impl Plugin for DragPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<DragState>()
+        app.init_resource::<DragToolState>()
             .add_systems(
                 Update,
                 (
@@ -71,8 +100,15 @@ fn handle_selected_point_drag_state(
     mut commands: Commands,
     selected_query: Query<&SelectedControlPoint>,
     mut curve_query: Query<&mut BezierCurve>,
-    mut drag_state: ResMut<DragState>,
+    mut drag_state: ResMut<DragToolState>,
+    tool_state: Res<ToolState>,
 ) {
+    // Check if we should disable drag (when in hand mode), reset state if so
+    if tool_state.is_currently_using_tool(Tool::Hand) {
+        drag_state.reset(&mut commands);
+        return;
+    }
+
     let has_selected_points = !selected_query.is_empty();
     let is_dragging = cursor_state.dragging && has_selected_points;
 
@@ -139,13 +175,54 @@ fn handle_selected_point_drag_state(
     }
 }
 
+fn handle_no_selected_point_drag_state(
+    cursor_state: Res<CursorState>,
+    cursor_pos: Res<CursorWorldPos>,
+    selected_query: Query<&SelectedControlPoint>,
+    mut drag_state: ResMut<DragToolState>,
+    tool_state: Res<ToolState>,
+    mut commands: Commands,
+) {
+    // Check if we should disable drag (when in hand mode), reset state if so
+    if tool_state.is_currently_using_tool(Tool::Hand) {
+        drag_state.reset(&mut commands);
+        return;
+    }
+
+    let should_have_no_selected_point_drag = cursor_state.dragging && selected_query.is_empty();
+
+    if should_have_no_selected_point_drag {
+        // Calculate no selected point drag rectangle
+        let start = cursor_state.drag_start_pos;
+        let end = cursor_pos.0;
+        let min_x = start.x.min(end.x);
+        let max_x = start.x.max(end.x);
+        let min_y = start.y.min(end.y);
+        let max_y = start.y.max(end.y);
+
+        drag_state.rectangle.rect = Some(DragRect {
+            origin: Vec2::new(min_x, min_y),
+            width: max_x - min_x,
+            height: max_y - min_y,
+        });
+    } else {
+        drag_state.rectangle.rect = None;
+    }
+}
+
 fn render_selected_point_drag(
     mut gizmos: Gizmos,
     cursor_state: Res<CursorState>,
     config: Res<CursorVisualizationConfig>,
     selected_query: Query<&SelectedControlPoint>,
-    drag_state: Res<DragState>,
+    drag_state: Res<DragToolState>,
+    tool_state: Res<ToolState>,
 ) {
+    // Don't render when in hand mode
+    if tool_state.is_currently_using_tool(Tool::Hand) {
+        return;
+    }
+
     // Only show when dragging is active
     if !drag_state.selected_points.is_active {
         return;
@@ -227,44 +304,28 @@ fn render_selected_point_drag(
     render_drag_start_indicator(&mut gizmos, cursor_state.drag_start_pos, &config);
 }
 
-fn handle_no_selected_point_drag_state(
-    cursor_state: Res<CursorState>,
-    cursor_pos: Res<CursorWorldPos>,
-    selected_query: Query<&SelectedControlPoint>,
-    mut drag_state: ResMut<DragState>,
-) {
-    let should_have_no_selected_point_drag = cursor_state.dragging && selected_query.is_empty();
-
-    if should_have_no_selected_point_drag {
-        // Calculate no selected point drag rectangle
-        let start = cursor_state.drag_start_pos;
-        let end = cursor_pos.0;
-        let min_x = start.x.min(end.x);
-        let max_x = start.x.max(end.x);
-        let min_y = start.y.min(end.y);
-        let max_y = start.y.max(end.y);
-
-        drag_state.rectangle.rect = Some(DragRect {
-            origin: Vec2::new(min_x, min_y),
-            width: max_x - min_x,
-            height: max_y - min_y,
-        });
-    } else {
-        drag_state.rectangle.rect = None;
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 fn render_no_selected_point_drag(
     mut commands: Commands,
     mut gizmos: Gizmos,
     config: Res<CursorVisualizationConfig>,
     time: Res<Time>,
-    mut drag_state: ResMut<DragState>,
+    mut drag_state: ResMut<DragToolState>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut no_selected_point_drag_query: Query<&mut Transform, With<NoSelectedPointDragRectangle>>,
+    tool_state: Res<ToolState>,
 ) {
+    // Don't render when in hand mode
+    if tool_state.is_currently_using_tool(Tool::Hand) {
+        // Clean up any existing rectangle when switching to hand mode
+        if let Some(entity) = drag_state.rectangle.entity {
+            commands.entity(entity).despawn();
+            drag_state.rectangle.entity = None;
+        }
+        return;
+    }
+
     if let Some(no_selected_point_drag_rect) = drag_state.rectangle.rect {
         // Render no selected point drag filled background
         render_no_selected_point_drag_fill(
