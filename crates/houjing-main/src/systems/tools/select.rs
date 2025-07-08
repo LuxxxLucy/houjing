@@ -1,3 +1,4 @@
+use super::common::point_finding::find_closest_control_point;
 use super::common::selected::SelectedControlPoint;
 use super::cursor::*;
 use super::tool::{Tool, ToolState};
@@ -85,22 +86,12 @@ fn handle_point_selection(
     // Clear existing selections
     selection_state.reset(&mut commands, &selected_query);
 
-    // Find closest control point
-    let mut closest_point = None;
-    let mut closest_distance = f32::INFINITY;
-
-    for (curve_entity, curve) in curve_query.iter() {
-        for (point_index, &point_pos) in curve.control_points.iter().enumerate() {
-            let distance = cursor_pos.0.distance(point_pos);
-            if distance < config.selection_radius && distance < closest_distance {
-                closest_distance = distance;
-                closest_point = Some((curve_entity, point_index));
-            }
-        }
-    }
-
-    // Select closest point if found
-    if let Some((curve_entity, point_index)) = closest_point {
+    // Find closest control point using shared utility
+    if let Some(found_point) =
+        find_closest_control_point(cursor_pos.0, &curve_query, config.selection_radius)
+    {
+        let curve_entity = found_point.curve_entity;
+        let point_index = found_point.point_index;
         let selected_point = SelectedControlPoint {
             curve_entity,
             point_index,

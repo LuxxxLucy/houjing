@@ -1,3 +1,4 @@
+use super::common::point_finding::snap_to_closest_point;
 use super::cursor::*;
 use super::tool::{Tool, ToolState};
 use crate::component::curve::BezierCurve;
@@ -39,6 +40,7 @@ impl CurveCreationToolState {
 const DEFAULT_POINT_COLOR: Color = Color::BLUE;
 const DEFAULT_POINT_RADIUS: f32 = 6.0;
 const DEFAULT_DUPLICATE_THRESHOLD: f32 = 1.0;
+const DEFAULT_SNAP_THRESHOLD: f32 = 15.0; // Distance threshold for snapping to existing points
 const DEFAULT_CURVE_CREATION_Z_LAYER: f32 = 2.0;
 
 #[derive(Resource)]
@@ -46,6 +48,7 @@ struct CurveCreationConfig {
     pub point_color: Color,
     pub point_radius: f32,
     pub duplicate_threshold: f32,
+    pub snap_threshold: f32,
     pub z_layer: f32,
 }
 
@@ -55,6 +58,7 @@ impl Default for CurveCreationConfig {
             point_color: DEFAULT_POINT_COLOR,
             point_radius: DEFAULT_POINT_RADIUS,
             duplicate_threshold: DEFAULT_DUPLICATE_THRESHOLD,
+            snap_threshold: DEFAULT_SNAP_THRESHOLD,
             z_layer: DEFAULT_CURVE_CREATION_Z_LAYER,
         }
     }
@@ -77,6 +81,7 @@ fn handle_curve_creation(
     cursor_state: Res<CursorState>,
     cursor_pos: Res<CursorWorldPos>,
     config: Res<CurveCreationConfig>,
+    existing_curves: Query<(Entity, &BezierCurve)>,
 ) {
     // Check if tool is active, reset state if not
     if !tool_state.is_currently_using_tool(Tool::CreateCurve) {
@@ -88,12 +93,23 @@ fn handle_curve_creation(
         return;
     }
 
+    // Find closest existing point within snap threshold using shared utility
+    let target_pos = snap_to_closest_point(cursor_pos.0, &existing_curves, config.snap_threshold);
+
     // Check if this is the same point as the last one
     if let Some(last_point) = curve_creation_state.last_point {
-        if cursor_pos.0.distance(last_point) < config.duplicate_threshold {
-            debug!("DEBUG: Ignoring duplicate point at {:?}", cursor_pos.0);
+        if target_pos.distance(last_point) < config.duplicate_threshold {
+            debug!("DEBUG: Ignoring duplicate point at {target_pos:?}");
             return;
         }
+    }
+
+    // Log snapping behavior
+    if (target_pos - cursor_pos.0).length() > 0.1 {
+        debug!(
+            "DEBUG: Snapped cursor from {:?} to existing point {:?}",
+            cursor_pos.0, target_pos
+        );
     }
 
     debug!(
@@ -108,23 +124,16 @@ fn handle_curve_creation(
             // Start collecting points - should have 0 points here
             debug!("DEBUG: In Idle state, clearing points and starting new curve");
             curve_creation_state.reset(&mut commands);
-            curve_creation_state
-                .curve_creation_points
-                .push(cursor_pos.0);
-            curve_creation_state.last_point = Some(cursor_pos.0);
+            curve_creation_state.curve_creation_points.push(target_pos);
+            curve_creation_state.last_point = Some(target_pos);
             curve_creation_state.curve_creation_state = CurveCreationState::CollectingPoints;
-            debug!(
-                "Started cubic Bézier curve creation. Added point: {:?} (total: 1/4)",
-                cursor_pos.0
-            );
+            debug!("Started cubic Bézier curve creation. Added point: {target_pos:?} (total: 1/4)");
         }
         CurveCreationState::CollectingPoints => {
-            curve_creation_state
-                .curve_creation_points
-                .push(cursor_pos.0);
-            curve_creation_state.last_point = Some(cursor_pos.0);
+            curve_creation_state.curve_creation_points.push(target_pos);
+            curve_creation_state.last_point = Some(target_pos);
             let point_count = curve_creation_state.curve_creation_points.len();
-            debug!("Added point: {:?} (total: {}/4)", cursor_pos.0, point_count);
+            debug!("Added point: {target_pos:?} (total: {point_count}/4)");
 
             if point_count == 4 {
                 // Automatically create the curve
