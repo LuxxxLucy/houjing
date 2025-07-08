@@ -9,6 +9,58 @@ use bevy::prelude::*;
 use bevy::sprite::ColorMaterial;
 use std::collections::HashMap;
 
+// Animation parameters for drag selection wireframe
+const DASH_LENGTH: f32 = 6.0;
+const GAP_LENGTH: f32 = 4.0;
+const ANIMATION_SPEED: f32 = 40.0; // pixels per second
+
+// Visual element sizes
+const DRAG_START_INDICATOR_RADIUS: f32 = 4.0;
+
+// Default curve visualization during drag configuration constants
+const DEFAULT_DRAG_CURVE_COLOR: Color = Color::ORANGE;
+const DEFAULT_DRAG_ORIGINAL_CURVE_ALPHA: f32 = 0.3;
+const DEFAULT_DRAG_START_INDICATOR_ALPHA: f32 = 0.5;
+
+// Default drag selection rectangle configuration constants
+const DEFAULT_DRAG_SELECTION_COLOR: Color = Color::ORANGE;
+const DEFAULT_DRAG_SELECTION_BACKGROUND_ALPHA: f32 = 0.1;
+const DEFAULT_DRAG_SELECTION_WIREFRAME_ALPHA: f32 = 0.8;
+
+#[derive(Resource)]
+pub struct DragCurveVisualizationConfig {
+    pub drag_color: Color,
+    pub original_curve_alpha: f32,
+    pub start_indicator_alpha: f32,
+}
+
+impl Default for DragCurveVisualizationConfig {
+    fn default() -> Self {
+        Self {
+            drag_color: DEFAULT_DRAG_CURVE_COLOR,
+            original_curve_alpha: DEFAULT_DRAG_ORIGINAL_CURVE_ALPHA,
+            start_indicator_alpha: DEFAULT_DRAG_START_INDICATOR_ALPHA,
+        }
+    }
+}
+
+#[derive(Resource)]
+pub struct DragSelectionRectangleConfig {
+    pub drag_color: Color,
+    pub background_alpha: f32,
+    pub wireframe_alpha: f32,
+}
+
+impl Default for DragSelectionRectangleConfig {
+    fn default() -> Self {
+        Self {
+            drag_color: DEFAULT_DRAG_SELECTION_COLOR,
+            background_alpha: DEFAULT_DRAG_SELECTION_BACKGROUND_ALPHA,
+            wireframe_alpha: DEFAULT_DRAG_SELECTION_WIREFRAME_ALPHA,
+        }
+    }
+}
+
 #[derive(Resource, Default)]
 pub struct DragToolState {
     /// Drag state when there is no selected point
@@ -80,6 +132,8 @@ pub struct DragPlugin;
 impl Plugin for DragPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<DragToolState>()
+            .init_resource::<DragCurveVisualizationConfig>()
+            .init_resource::<DragSelectionRectangleConfig>()
             .add_systems(
                 Update,
                 (
@@ -215,6 +269,7 @@ fn render_selected_point_drag(
     mut gizmos: Gizmos,
     cursor_state: Res<CursorState>,
     config: Res<CursorVisualizationConfig>,
+    drag_config: Res<DragCurveVisualizationConfig>,
     selected_query: Query<&SelectedControlPoint>,
     drag_state: Res<DragToolState>,
     tool_state: Res<ToolState>,
@@ -253,15 +308,21 @@ fn render_selected_point_drag(
     fn render_drag_start_indicator(
         gizmos: &mut Gizmos,
         start_pos: Vec2,
-        config: &CursorVisualizationConfig,
+        drag_config: &DragCurveVisualizationConfig,
     ) {
-        gizmos.circle_2d(start_pos, 4.0, config.drag_color.with_a(0.5));
+        gizmos.circle_2d(
+            start_pos,
+            DRAG_START_INDICATOR_RADIUS,
+            drag_config
+                .drag_color
+                .with_a(drag_config.start_indicator_alpha),
+        );
     }
 
     fn render_original_curve(
         gizmos: &mut Gizmos,
         control_points: &[Vec2],
-        config: &CursorVisualizationConfig,
+        drag_config: &DragCurveVisualizationConfig,
     ) {
         if control_points.len() < 2 {
             return;
@@ -282,14 +343,20 @@ fn render_selected_point_drag(
             let p2 = temp_curve.evaluate(t2);
 
             // Draw with low opacity to distinguish from current curve
-            gizmos.line_2d(p1, p2, config.drag_color.with_a(0.3));
+            gizmos.line_2d(
+                p1,
+                p2,
+                drag_config
+                    .drag_color
+                    .with_a(drag_config.original_curve_alpha),
+            );
         }
     }
 
     // Render original curves as low-opacity lines
     if !drag_state.selected_points.original_curves.is_empty() {
         for original_curve_points in drag_state.selected_points.original_curves.values() {
-            render_original_curve(&mut gizmos, original_curve_points, &config);
+            render_original_curve(&mut gizmos, original_curve_points, &drag_config);
         }
     }
 
@@ -302,14 +369,14 @@ fn render_selected_point_drag(
     }
 
     // Draw drag start position indicator
-    render_drag_start_indicator(&mut gizmos, cursor_state.drag_start_pos, &config);
+    render_drag_start_indicator(&mut gizmos, cursor_state.drag_start_pos, &drag_config);
 }
 
 #[allow(clippy::too_many_arguments)]
 fn render_no_selected_point_drag(
     mut commands: Commands,
     mut gizmos: Gizmos,
-    config: Res<CursorVisualizationConfig>,
+    drag_selection_config: Res<DragSelectionRectangleConfig>,
     time: Res<Time>,
     mut drag_state: ResMut<DragToolState>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -332,7 +399,7 @@ fn render_no_selected_point_drag(
         render_no_selected_point_drag_fill(
             &mut commands,
             no_selected_point_drag_rect,
-            &config,
+            &drag_selection_config,
             &mut drag_state.rectangle,
             &mut meshes,
             &mut materials,
@@ -343,7 +410,7 @@ fn render_no_selected_point_drag(
         render_no_selected_point_drag_wireframe(
             &mut gizmos,
             no_selected_point_drag_rect,
-            &config,
+            &drag_selection_config,
             &time,
         );
     } else if let Some(entity) = drag_state.rectangle.entity {
@@ -353,10 +420,11 @@ fn render_no_selected_point_drag(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_no_selected_point_drag_fill(
     commands: &mut Commands,
     no_selected_point_drag_rect: DragRect,
-    config: &CursorVisualizationConfig,
+    drag_selection_config: &DragSelectionRectangleConfig,
     no_selected_point_drag_state: &mut NoSelectedPointDragState,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<ColorMaterial>,
@@ -378,7 +446,9 @@ fn render_no_selected_point_drag_fill(
         }
     } else {
         // Create new no selected point drag rectangle
-        let background_color = config.drag_color.with_a(0.1);
+        let background_color = drag_selection_config
+            .drag_color
+            .with_a(drag_selection_config.background_alpha);
         let center = Vec2::new(
             no_selected_point_drag_rect.origin.x + no_selected_point_drag_rect.width / 2.0,
             no_selected_point_drag_rect.origin.y + no_selected_point_drag_rect.height / 2.0,
@@ -407,7 +477,7 @@ fn render_no_selected_point_drag_fill(
 fn render_no_selected_point_drag_wireframe(
     gizmos: &mut Gizmos,
     no_selected_point_drag_rect: DragRect,
-    config: &CursorVisualizationConfig,
+    drag_selection_config: &DragSelectionRectangleConfig,
     time: &Time,
 ) {
     // Calculate no selected point drag rectangle corners from rect
@@ -422,12 +492,11 @@ fn render_no_selected_point_drag_wireframe(
     let bottom_left = Vec2::new(min_x, min_y);
 
     // Animation parameters for no selected point drag rectangle border
-    let dash_length = 6.0;
-    let gap_length = 4.0;
-    let pattern_length = dash_length + gap_length;
-    let animation_speed = 40.0; // pixels per second
-    let time_offset = (time.elapsed_seconds() * animation_speed) % pattern_length;
-    let selection_color = config.drag_color.with_a(0.8);
+    let pattern_length = DASH_LENGTH + GAP_LENGTH;
+    let time_offset = (time.elapsed_seconds() * ANIMATION_SPEED) % pattern_length;
+    let selection_color = drag_selection_config
+        .drag_color
+        .with_a(drag_selection_config.wireframe_alpha);
 
     // Function to draw dashed line between two points
     let draw_dashed_line = |gizmos: &mut Gizmos, start: Vec2, end: Vec2, offset: f32| {
@@ -440,7 +509,7 @@ fn render_no_selected_point_drag_wireframe(
 
             while current_distance < distance {
                 let dash_start = current_distance.max(0.0);
-                let dash_end = (current_distance + dash_length).min(distance);
+                let dash_end = (current_distance + DASH_LENGTH).min(distance);
 
                 if dash_start < dash_end {
                     let start_pos = start + normalized_direction * dash_start;

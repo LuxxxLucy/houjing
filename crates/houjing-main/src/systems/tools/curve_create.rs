@@ -99,7 +99,7 @@ fn handle_curve_creation(
     // Check if this is the same point as the last one
     if let Some(last_point) = curve_creation_state.last_point {
         if target_pos.distance(last_point) < config.duplicate_threshold {
-            debug!("DEBUG: Ignoring duplicate point at {target_pos:?}");
+            debug!("Ignoring duplicate point at {target_pos:?}");
             return;
         }
     }
@@ -107,13 +107,13 @@ fn handle_curve_creation(
     // Log snapping behavior
     if (target_pos - cursor_pos.0).length() > 0.1 {
         debug!(
-            "DEBUG: Snapped cursor from {:?} to existing point {:?}",
+            "Snapped cursor from {:?} to existing point {:?}",
             cursor_pos.0, target_pos
         );
     }
 
     debug!(
-        "DEBUG: Tool: {:?}, State: {:?}, Points: {}/4",
+        "Tool: {:?}, State: {:?}, Points: {}/4",
         tool_state.current(),
         curve_creation_state.curve_creation_state,
         curve_creation_state.curve_creation_points.len()
@@ -122,7 +122,7 @@ fn handle_curve_creation(
     match curve_creation_state.curve_creation_state {
         CurveCreationState::Idle => {
             // Start collecting points - should have 0 points here
-            debug!("DEBUG: In Idle state, clearing points and starting new curve");
+            debug!("In Idle state, clearing points and starting new curve");
             curve_creation_state.reset(&mut commands);
             curve_creation_state.curve_creation_points.push(target_pos);
             curve_creation_state.last_point = Some(target_pos);
@@ -175,7 +175,7 @@ fn render_curve_creation_points(
     }
 
     debug!(
-        "DEBUG RENDER: Updating points. Existing: {}, Current: {}",
+        "Updating points. Existing: {}, Current: {}",
         existing_count,
         curve_creation_state.curve_creation_points.len()
     );

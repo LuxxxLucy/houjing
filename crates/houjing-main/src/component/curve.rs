@@ -114,7 +114,7 @@ mod tests {
     #[test]
     fn test_curve_evaluation() {
         let quadratic_curve = BezierCurve::new(vec![
-            Vec2::new(0.0, 0.0),
+            Vec2::ZERO,
             Vec2::new(50.0, 100.0),
             Vec2::new(100.0, 0.0),
         ]);
@@ -123,18 +123,18 @@ mod tests {
         let end_point = quadratic_curve.evaluate(1.0);
         let mid_point = quadratic_curve.evaluate(0.5);
 
-        assert_eq!(start_point, Vec2::new(0.0, 0.0));
+        assert_eq!(start_point, Vec2::ZERO);
         assert_eq!(end_point, Vec2::new(100.0, 0.0));
         assert_eq!(mid_point, Vec2::new(50.0, 50.0));
     }
 
     #[test]
     fn test_curve_control_points_data() {
-        let points = vec![Vec2::new(0.0, 0.0), Vec2::new(100.0, 50.0)];
+        let points = vec![Vec2::ZERO, Vec2::new(100.0, 50.0)];
         let curve = BezierCurve::new(points.clone());
 
         assert_eq!(curve.control_points.len(), 2);
-        assert_eq!(curve.control_points[0], Vec2::new(0.0, 0.0));
+        assert_eq!(curve.control_points[0], Vec2::ZERO);
         assert_eq!(curve.control_points[1], Vec2::new(100.0, 50.0));
     }
 
@@ -149,11 +149,7 @@ mod tests {
             .add_systems(Update, (create_new_curves, update_curve_if_needed));
 
         // Create a test curve
-        let initial_points = vec![
-            Vec2::new(0.0, 0.0),
-            Vec2::new(50.0, 100.0),
-            Vec2::new(100.0, 0.0),
-        ];
+        let initial_points = vec![Vec2::ZERO, Vec2::new(50.0, 100.0), Vec2::new(100.0, 0.0)];
         let curve = BezierCurve::new(initial_points);
         let curve_entity = app.world.spawn(curve).id();
 
