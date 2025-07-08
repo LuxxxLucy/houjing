@@ -1,7 +1,9 @@
+mod common;
 mod cursor;
 mod curve_create;
 mod drag;
 mod hand;
+mod nudge;
 mod select;
 mod tool;
 
@@ -10,6 +12,7 @@ use cursor::CursorPlugin;
 use curve_create::CurveCreationPlugin;
 use drag::DragPlugin;
 use hand::HandPlugin;
+use nudge::NudgePlugin;
 use select::SelectionPlugin;
 use tool::ToolPlugin;
 
@@ -19,6 +22,7 @@ pub(crate) fn add_tools_plugins(app: &mut App) {
         CursorPlugin,
         SelectionPlugin,
         DragPlugin,
+        NudgePlugin,
         CurveCreationPlugin,
         HandPlugin,
     ));

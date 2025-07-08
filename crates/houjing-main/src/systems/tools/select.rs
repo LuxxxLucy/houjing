@@ -1,15 +1,10 @@
+use super::common::selected::SelectedControlPoint;
 use super::cursor::*;
 use super::tool::{Tool, ToolState};
 use crate::component::curve::BezierCurve;
 use crate::{InputSet, ShowSet};
 use bevy::prelude::*;
 use log::debug;
-
-#[derive(Component)]
-pub struct SelectedControlPoint {
-    pub curve_entity: Entity,
-    pub point_index: usize,
-}
 
 #[derive(Resource, Default)]
 pub struct SelectionToolState {

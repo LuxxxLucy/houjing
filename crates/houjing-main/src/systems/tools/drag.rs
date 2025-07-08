@@ -1,5 +1,5 @@
+use super::common::selected::SelectedControlPoint;
 use super::cursor::{CursorState, CursorWorldPos};
-use super::select::SelectedControlPoint;
 use super::tool::{Tool, ToolState};
 use crate::component::curve::{BezierCurve, CurveNeedsUpdate};
 use crate::rendering::render_simple_rectangle;
