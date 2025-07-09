@@ -14,6 +14,7 @@ pub(crate) enum Tool {
     Select,
     CreateCurve,
     Hand,
+    Zoom,
 }
 
 impl ToolState {
@@ -71,6 +72,10 @@ fn handle_tool_switching(mut tool_state: ResMut<ToolState>, keyboard: Res<Button
 
         if keyboard.just_pressed(KeyCode::KeyG) {
             new_tool = Some(Tool::Hand)
+        }
+
+        if keyboard.just_pressed(KeyCode::KeyZ) {
+            new_tool = Some(Tool::Zoom)
         }
 
         if let Some(new_tool) = new_tool {

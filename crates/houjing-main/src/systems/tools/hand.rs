@@ -124,8 +124,11 @@ fn update_hand_cursor(
                 window.cursor.icon = CursorIcon::Grab;
             }
         } else {
-            // Reset to default cursor for other tools
-            window.cursor.icon = CursorIcon::Default;
+            // Reset to default cursor only if it was previously set by hand tool
+            if window.cursor.icon == CursorIcon::Grab || window.cursor.icon == CursorIcon::Grabbing
+            {
+                window.cursor.icon = CursorIcon::Default;
+            }
         }
     }
 }
