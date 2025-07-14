@@ -19,13 +19,19 @@ pub struct CurveCreationToolState {
     pub curve_creation_point_entities: Vec<Entity>,
     pub curve_creation_state: CurveCreationState,
     pub last_point_entity: Option<Entity>,
+    pub preview_entities: Vec<Entity>,
 }
 
 impl CurveCreationToolState {
-    pub fn reset(&mut self, _commands: &mut Commands) {
+    pub fn reset(&mut self, commands: &mut Commands) {
         self.curve_creation_state = CurveCreationState::Idle;
         self.curve_creation_point_entities.clear();
         self.last_point_entity = None;
+
+        // Clean up all tracked preview entities
+        for entity in self.preview_entities.drain(..) {
+            commands.entity(entity).despawn();
+        }
     }
 }
 
@@ -155,7 +161,6 @@ fn handle_curve_creation(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn render_curve_creation_points(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -163,7 +168,6 @@ fn render_curve_creation_points(
     tool_state: Res<ToolState>,
     mut curve_creation_state: ResMut<CurveCreationToolState>,
     config: Res<CurveCreationConfig>,
-    existing_previews: Query<(Entity, &CurveCreationPoint)>,
     point_query: Query<&Point>,
 ) {
     // Clear existing creation points if not in create mode
@@ -181,7 +185,7 @@ fn render_curve_creation_points(
     }
 
     // Check if we need to update the rendered points
-    let existing_count = existing_previews.iter().count();
+    let existing_count = curve_creation_state.preview_entities.len();
     if existing_count == curve_creation_state.curve_creation_point_entities.len() {
         return; // No change needed
     }
@@ -193,7 +197,7 @@ fn render_curve_creation_points(
     );
 
     // Clear existing creation preview entities
-    for (entity, _) in existing_previews.iter() {
+    for entity in curve_creation_state.preview_entities.drain(..) {
         commands.entity(entity).despawn();
     }
 
@@ -213,8 +217,9 @@ fn render_curve_creation_points(
                 config.z_layer,
             );
 
-            // Add the component marker
+            // Add the component marker and track the entity
             commands.entity(preview_entity).insert(CurveCreationPoint);
+            curve_creation_state.preview_entities.push(preview_entity);
         }
     }
 }
