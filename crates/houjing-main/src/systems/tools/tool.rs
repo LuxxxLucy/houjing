@@ -12,6 +12,7 @@ pub(crate) struct ToolState {
 pub(crate) enum Tool {
     #[default]
     Select,
+    Split,
     CreateCurve,
     Hand,
     Zoom,
@@ -62,8 +63,12 @@ fn handle_tool_switching(mut tool_state: ResMut<ToolState>, keyboard: Res<Button
     // Handle permanent tool switching (only when not in temporary hand mode)
     if !tool_state.is_space_held {
         let mut new_tool = None;
-        if keyboard.just_pressed(KeyCode::KeyS) {
+        if keyboard.just_pressed(KeyCode::KeyV) {
             new_tool = Some(Tool::Select)
+        }
+
+        if keyboard.just_pressed(KeyCode::KeyS) {
+            new_tool = Some(Tool::Split)
         }
 
         if keyboard.just_pressed(KeyCode::KeyC) {

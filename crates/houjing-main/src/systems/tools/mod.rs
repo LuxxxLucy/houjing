@@ -5,6 +5,7 @@ mod drag;
 mod hand;
 mod nudge;
 mod select;
+mod split;
 mod tool;
 mod zoom;
 
@@ -15,6 +16,7 @@ use drag::DragPlugin;
 use hand::HandPlugin;
 use nudge::NudgePlugin;
 use select::SelectionPlugin;
+use split::SplitPlugin;
 use tool::ToolPlugin;
 use zoom::ZoomPlugin;
 
@@ -23,6 +25,7 @@ pub(crate) fn add_tools_plugins(app: &mut App) {
         ToolPlugin,
         CursorPlugin,
         SelectionPlugin,
+        SplitPlugin,
         DragPlugin,
         NudgePlugin,
         CurveCreationPlugin,
