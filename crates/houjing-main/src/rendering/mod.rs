@@ -5,7 +5,10 @@ pub mod primitive;
 use bevy::prelude::*;
 
 // Re-export primitive functions for convenience
-pub use primitive::{render_simple_circle, render_simple_rectangle};
+pub use primitive::{
+    DashedLineConfig, render_animated_dashed_line, render_dashed_line, render_simple_circle,
+    render_simple_rectangle,
+};
 
 pub struct ColorPalette {
     pub selection: Color,

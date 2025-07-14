@@ -3,7 +3,7 @@ use super::cursor::{CursorState, CursorVisualizationConfig};
 use super::select::SelectionToolState;
 use super::tool::{Tool, ToolState};
 use crate::component::curve::Point;
-use crate::rendering::render_simple_rectangle;
+use crate::rendering::{render_dashed_line, render_simple_rectangle};
 use crate::{InputSet, ShowSet};
 use bevy::prelude::*;
 use bevy::sprite::ColorMaterial;
@@ -421,55 +421,43 @@ fn render_no_selected_point_drag_wireframe(
     let dash_offset = (elapsed * ANIMATION_SPEED) % (DASH_LENGTH + GAP_LENGTH);
 
     // Top edge
-    draw_dashed_line(
+    render_dashed_line(
         gizmos,
         Vec2::new(min.x, max.y),
         Vec2::new(max.x, max.y),
         color,
+        DASH_LENGTH,
+        GAP_LENGTH,
         dash_offset,
     );
     // Right edge
-    draw_dashed_line(
+    render_dashed_line(
         gizmos,
         Vec2::new(max.x, max.y),
         Vec2::new(max.x, min.y),
         color,
+        DASH_LENGTH,
+        GAP_LENGTH,
         dash_offset,
     );
     // Bottom edge
-    draw_dashed_line(
+    render_dashed_line(
         gizmos,
         Vec2::new(max.x, min.y),
         Vec2::new(min.x, min.y),
         color,
+        DASH_LENGTH,
+        GAP_LENGTH,
         dash_offset,
     );
     // Left edge
-    draw_dashed_line(
+    render_dashed_line(
         gizmos,
         Vec2::new(min.x, min.y),
         Vec2::new(min.x, max.y),
         color,
+        DASH_LENGTH,
+        GAP_LENGTH,
         dash_offset,
     );
-}
-
-fn draw_dashed_line(gizmos: &mut Gizmos, start: Vec2, end: Vec2, color: Color, dash_offset: f32) {
-    let line_vec = end - start;
-    let line_length = line_vec.length();
-    let line_dir = line_vec.normalize();
-
-    let mut current_pos = -dash_offset;
-    while current_pos < line_length {
-        let dash_start = (current_pos).max(0.0);
-        let dash_end = (current_pos + DASH_LENGTH).min(line_length);
-
-        if dash_start < line_length && dash_end > 0.0 {
-            let start_point = start + line_dir * dash_start;
-            let end_point = start + line_dir * dash_end;
-            gizmos.line_2d(start_point, end_point, color);
-        }
-
-        current_pos += DASH_LENGTH + GAP_LENGTH;
-    }
 }

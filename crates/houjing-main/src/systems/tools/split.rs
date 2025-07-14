@@ -8,6 +8,7 @@ use houjing_bezier::{
 use super::cursor::CursorState;
 use super::tool::{Tool, ToolState};
 use crate::component::curve::{BezierCurve, Point};
+use crate::rendering::{DashedLineConfig, render_animated_dashed_line};
 use crate::{EditSet, InputSet, ShowSet};
 
 // Configuration constants
@@ -226,41 +227,18 @@ fn render_split_preview(
 
         // Render the animated dashed perpendicular line
         let (line_start, line_end) = preview.perpendicular_line;
+        let dash_config = DashedLineConfig {
+            dash_length: DASH_LENGTH,
+            gap_length: GAP_LENGTH,
+            animation_speed: ANIMATION_SPEED,
+        };
         render_animated_dashed_line(
             &mut gizmos,
             line_start,
             line_end,
             config.split_preview_color,
+            &dash_config,
             &time,
         );
-    }
-}
-
-fn render_animated_dashed_line(
-    gizmos: &mut Gizmos,
-    start: Vec2,
-    end: Vec2,
-    color: Color,
-    time: &Time,
-) {
-    let line_vec = end - start;
-    let line_length = line_vec.length();
-    let line_dir = line_vec.normalize();
-
-    let elapsed = time.elapsed_seconds();
-    let dash_offset = (elapsed * ANIMATION_SPEED) % (DASH_LENGTH + GAP_LENGTH);
-
-    let mut current_pos = -dash_offset;
-    while current_pos < line_length {
-        let dash_start = current_pos.max(0.0);
-        let dash_end = (current_pos + DASH_LENGTH).min(line_length);
-
-        if dash_start < line_length && dash_end > 0.0 {
-            let start_point = start + line_dir * dash_start;
-            let end_point = start + line_dir * dash_end;
-            gizmos.line_2d(start_point, end_point, color);
-        }
-
-        current_pos += DASH_LENGTH + GAP_LENGTH;
     }
 }
