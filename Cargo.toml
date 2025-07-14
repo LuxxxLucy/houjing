@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/houjing-main"]
+members = ["crates/*"]
 resolver = "2"
 
 [profile.dev]

@@ -1,0 +1,12 @@
+[package]
+name = "houjing-bezier"
+version = "0.0.1"
+edition = "2021"
+
+[dependencies]
+# Using bevy_math for Vec2 - same as main crate
+bevy_math = "0.13"
+
+[dev-dependencies]
+# For testing
+approx = "0.5" 

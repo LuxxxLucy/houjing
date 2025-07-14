@@ -1,6 +1,7 @@
 use crate::ShowSet;
 use bevy::prelude::*;
 use bevy::sprite::{MaterialMesh2dBundle, Mesh2dHandle};
+use houjing_bezier::evaluate_bezier_curve_segment;
 
 // Default curve rendering configuration constants
 const DEFAULT_CURVE_COLOR: Color = Color::WHITE;
@@ -59,48 +60,7 @@ impl BezierCurve {
 
     /// Evaluate a Bezier curve at parameter t given control points
     pub fn evaluate_bezier(control_points: &[Vec2], t: f32) -> Vec2 {
-        match control_points.len() {
-            2 => {
-                // Linear interpolation
-                control_points[0].lerp(control_points[1], t)
-            }
-            3 => Self::evaluate_quadratic_bezier(control_points, t),
-            4 => Self::evaluate_cubic_bezier(control_points, t),
-            _ => panic!(
-                "Unsupported number of control points: {}",
-                control_points.len()
-            ),
-        }
-    }
-
-    fn evaluate_quadratic_bezier(control_points: &[Vec2], t: f32) -> Vec2 {
-        let p0 = control_points[0];
-        let p1 = control_points[1];
-        let p2 = control_points[2];
-
-        let one_minus_t = 1.0 - t;
-        let one_minus_t_sq = one_minus_t * one_minus_t;
-        let t_sq = t * t;
-
-        one_minus_t_sq * p0 + 2.0 * one_minus_t * t * p1 + t_sq * p2
-    }
-
-    fn evaluate_cubic_bezier(control_points: &[Vec2], t: f32) -> Vec2 {
-        let p0 = control_points[0];
-        let p1 = control_points[1];
-        let p2 = control_points[2];
-        let p3 = control_points[3];
-
-        let one_minus_t = 1.0 - t;
-        let one_minus_t_sq = one_minus_t * one_minus_t;
-        let one_minus_t_cu = one_minus_t_sq * one_minus_t;
-        let t_sq = t * t;
-        let t_cu = t_sq * t;
-
-        one_minus_t_cu * p0
-            + 3.0 * one_minus_t_sq * t * p1
-            + 3.0 * one_minus_t * t_sq * p2
-            + t_cu * p3
+        evaluate_bezier_curve_segment(control_points, t)
     }
 }
 
