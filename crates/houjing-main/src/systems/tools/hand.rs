@@ -72,7 +72,7 @@ fn handle_hand_input(
     // Get current screen position
     let current_screen_pos = window.cursor_position();
 
-    if cursor_state.cursor_just_pressed {
+    if cursor_state.mouse_just_pressed {
         if let Some(screen_pos) = current_screen_pos {
             hand_state.is_panning = true;
             hand_state.last_screen_pos = Some(screen_pos);

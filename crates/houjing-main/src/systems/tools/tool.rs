@@ -39,7 +39,7 @@ pub(crate) struct ToolPlugin;
 impl Plugin for ToolPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ToolState>();
-        app.add_systems(Update, (handle_tool_switching,).in_set(InputSet));
+        app.add_systems(Update, (handle_tool_switching,).before(InputSet));
     }
 }
 

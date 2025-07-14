@@ -1,7 +1,7 @@
 use super::common::selected::{SelectedControlPoint, move_selected_points};
 use super::tool::{Tool, ToolState};
 use crate::InputSet;
-use crate::component::curve::BezierCurve;
+use crate::component::curve::Point;
 use bevy::prelude::*;
 
 #[derive(Resource)]
@@ -41,7 +41,7 @@ fn handle_nudge_input(
     tool_state: Res<ToolState>,
     mut nudge_state: ResMut<NudgeToolState>,
     selected_query: Query<&SelectedControlPoint>,
-    mut curve_query: Query<&mut BezierCurve>,
+    mut point_query: Query<&mut Point>,
 ) {
     // Reset state if not using select tool (nudge only works with selection)
     if !tool_state.is_currently_using_tool(Tool::Select) {
@@ -69,6 +69,6 @@ fn handle_nudge_input(
 
     if let Some(offset) = movement {
         // Move all selected points by the offset
-        move_selected_points(&mut commands, &selected_query, &mut curve_query, offset);
+        move_selected_points(&selected_query, &mut point_query, offset);
     }
 }

@@ -1,31 +1,27 @@
-use crate::component::curve::{BezierCurve, CurveNeedsUpdate};
+use crate::component::curve::Point;
 use bevy::prelude::*;
 
 /// Component representing a selected control point on a curve
-#[derive(Component)]
+#[derive(Component, Clone, Copy)]
 pub struct SelectedControlPoint {
     pub curve_entity: Entity,
     pub point_index: usize,
+    pub point_entity: Entity,
 }
 
 /// Shared utility function to move selected points by an offset
 /// This can be used by both drag and nudge tools
 pub fn move_selected_points(
-    commands: &mut Commands,
     selected_query: &Query<&SelectedControlPoint>,
-    curve_query: &mut Query<&mut BezierCurve>,
+    point_query: &mut Query<&mut Point>,
     offset: Vec2,
 ) {
     for selected_point in selected_query.iter() {
-        if let Ok(mut curve) = curve_query.get_mut(selected_point.curve_entity) {
-            if let Some(point) = curve.control_points.get_mut(selected_point.point_index) {
-                *point += offset;
-
-                // Mark curve for mesh update
-                commands
-                    .entity(selected_point.curve_entity)
-                    .insert(CurveNeedsUpdate);
-            }
+        // Move the point entity directly
+        if let Ok(mut point) = point_query.get_mut(selected_point.point_entity) {
+            let current_pos = point.position();
+            point.set_position(current_pos + offset);
+            // Point position change will be detected by Bevy's change detection system
         }
     }
 }

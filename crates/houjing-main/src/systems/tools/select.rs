@@ -1,8 +1,8 @@
-use super::common::point_finding::find_closest_control_point;
+use super::common::point_finding::find_closest_point;
 use super::common::selected::SelectedControlPoint;
 use super::cursor::*;
 use super::tool::{Tool, ToolState};
-use crate::component::curve::BezierCurve;
+use crate::component::curve::{BezierCurve, Point, find_curve_containing_point};
 use crate::{InputSet, ShowSet};
 use bevy::prelude::*;
 use log::debug;
@@ -66,11 +66,11 @@ impl Plugin for SelectionPlugin {
 fn handle_point_selection(
     mut commands: Commands,
     cursor_state: Res<CursorState>,
-    cursor_pos: Res<CursorWorldPos>,
     tool_state: Res<ToolState>,
     mut selection_state: ResMut<SelectionToolState>,
     config: Res<SelectionConfig>,
     curve_query: Query<(Entity, &BezierCurve)>,
+    point_query: Query<(Entity, &Point)>,
     selected_query: Query<Entity, With<SelectedControlPoint>>,
 ) {
     // Check if tool is active, reset state if not
@@ -79,33 +79,39 @@ fn handle_point_selection(
         return;
     }
 
-    if !cursor_state.cursor_just_pressed {
+    if !cursor_state.mouse_just_pressed {
         return;
     }
 
     // Clear existing selections
     selection_state.reset(&mut commands, &selected_query);
 
-    // Find closest control point using shared utility
-    if let Some(found_point) =
-        find_closest_control_point(cursor_pos.0, &curve_query, config.selection_radius)
-    {
-        let curve_entity = found_point.curve_entity;
-        let point_index = found_point.point_index;
-        let selected_point = SelectedControlPoint {
-            curve_entity,
-            point_index,
-        };
+    // Find closest point using shared utility
+    if let Some(point_entity) = find_closest_point(
+        cursor_state.cursor_position,
+        &point_query,
+        config.selection_radius,
+    ) {
+        // Check if this point is part of a curve
+        if let Some((curve_entity, point_index)) =
+            find_curve_containing_point(point_entity, &curve_query)
+        {
+            debug!(
+                "Found point: curve {curve_entity:?}, index {point_index}, entity {point_entity:?}"
+            );
 
-        // Add to our state
-        selection_state.selected_points.push(SelectedControlPoint {
-            curve_entity,
-            point_index,
-        });
+            let selected_point = SelectedControlPoint {
+                curve_entity,
+                point_index,
+                point_entity,
+            };
 
-        // Spawn entity for other systems to query
-        commands.spawn(selected_point);
-        debug!("Selected control point {point_index} of curve {curve_entity:?}");
+            // Add to our state
+            selection_state.selected_points.push(selected_point);
+
+            // Spawn entity for other systems to query
+            commands.spawn(selected_point);
+        }
     }
 }
 
@@ -113,6 +119,7 @@ fn render_selection_control_points(
     mut gizmos: Gizmos,
     config: Res<SelectionConfig>,
     curve_query: Query<(Entity, &BezierCurve)>,
+    point_query: Query<(Entity, &Point)>,
     selected_query: Query<&SelectedControlPoint>,
 ) {
     let selected_points: Vec<(Entity, usize)> = selected_query
@@ -121,15 +128,17 @@ fn render_selection_control_points(
         .collect();
 
     for (curve_entity, curve) in curve_query.iter() {
-        for (i, &point_pos) in curve.control_points.iter().enumerate() {
-            let is_selected = selected_points.contains(&(curve_entity, i));
-            let color = if is_selected {
-                config.selected_point_color
-            } else {
-                config.control_point_color
-            };
+        for (i, &point_entity) in curve.point_entities.iter().enumerate() {
+            if let Ok((_, point_pos)) = point_query.get(point_entity) {
+                let is_selected = selected_points.contains(&(curve_entity, i));
+                let color = if is_selected {
+                    config.selected_point_color
+                } else {
+                    config.control_point_color
+                };
 
-            gizmos.circle_2d(point_pos, config.control_point_radius, color);
+                gizmos.circle_2d(point_pos.position(), config.control_point_radius, color);
+            }
         }
     }
 }

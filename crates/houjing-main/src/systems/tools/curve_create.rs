@@ -1,7 +1,7 @@
-use super::common::point_finding::snap_to_closest_point;
+use super::common::point_finding::find_or_create_point_for_snapping;
 use super::cursor::*;
 use super::tool::{Tool, ToolState};
-use crate::component::curve::BezierCurve;
+use crate::component::curve::{BezierCurve, Point, get_position};
 use crate::rendering::render_simple_circle;
 use crate::{EditSet, ShowSet};
 use bevy::prelude::*;
@@ -16,30 +16,22 @@ pub enum CurveCreationState {
 
 #[derive(Resource, Default)]
 pub struct CurveCreationToolState {
-    pub curve_creation_points: Vec<Vec2>,
+    pub curve_creation_point_entities: Vec<Entity>,
     pub curve_creation_state: CurveCreationState,
-    pub last_point: Option<Vec2>,
-    pub point_entities: Vec<Entity>,
+    pub last_point_entity: Option<Entity>,
 }
 
 impl CurveCreationToolState {
-    pub fn reset(&mut self, commands: &mut Commands) {
-        // Clear all point entities when resetting
-        for &entity in &self.point_entities {
-            commands.entity(entity).despawn();
-        }
-
+    pub fn reset(&mut self, _commands: &mut Commands) {
         self.curve_creation_state = CurveCreationState::Idle;
-        self.curve_creation_points.clear();
-        self.last_point = None;
-        self.point_entities.clear();
+        self.curve_creation_point_entities.clear();
+        self.last_point_entity = None;
     }
 }
 
 // Default curve creation configuration constants
 const DEFAULT_POINT_COLOR: Color = Color::BLUE;
 const DEFAULT_POINT_RADIUS: f32 = 6.0;
-const DEFAULT_DUPLICATE_THRESHOLD: f32 = 1.0;
 const DEFAULT_SNAP_THRESHOLD: f32 = 15.0; // Distance threshold for snapping to existing points
 const DEFAULT_CURVE_CREATION_Z_LAYER: f32 = 2.0;
 
@@ -47,7 +39,6 @@ const DEFAULT_CURVE_CREATION_Z_LAYER: f32 = 2.0;
 struct CurveCreationConfig {
     pub point_color: Color,
     pub point_radius: f32,
-    pub duplicate_threshold: f32,
     pub snap_threshold: f32,
     pub z_layer: f32,
 }
@@ -57,7 +48,6 @@ impl Default for CurveCreationConfig {
         Self {
             point_color: DEFAULT_POINT_COLOR,
             point_radius: DEFAULT_POINT_RADIUS,
-            duplicate_threshold: DEFAULT_DUPLICATE_THRESHOLD,
             snap_threshold: DEFAULT_SNAP_THRESHOLD,
             z_layer: DEFAULT_CURVE_CREATION_Z_LAYER,
         }
@@ -79,9 +69,8 @@ fn handle_curve_creation(
     mut curve_creation_state: ResMut<CurveCreationToolState>,
     tool_state: Res<ToolState>,
     cursor_state: Res<CursorState>,
-    cursor_pos: Res<CursorWorldPos>,
     config: Res<CurveCreationConfig>,
-    existing_curves: Query<(Entity, &BezierCurve)>,
+    point_query: Query<(Entity, &Point)>,
 ) {
     // Check if tool is active, reset state if not
     if !tool_state.is_currently_using_tool(Tool::CreateCurve) {
@@ -89,26 +78,35 @@ fn handle_curve_creation(
         return;
     }
 
-    if !cursor_state.cursor_just_pressed {
+    if !cursor_state.mouse_just_pressed {
         return;
     }
 
-    // Find closest existing point within snap threshold using shared utility
-    let target_pos = snap_to_closest_point(cursor_pos.0, &existing_curves, config.snap_threshold);
+    // Find or create point entity for the cursor position, with snapping
+    let point_entity = find_or_create_point_for_snapping(
+        cursor_state.cursor_position,
+        &mut commands,
+        &point_query,
+        config.snap_threshold,
+    );
+
+    // Get the position of the point
+    let target_pos =
+        get_position(point_entity, &point_query).unwrap_or(cursor_state.cursor_position);
 
     // Check if this is the same point as the last one
-    if let Some(last_point) = curve_creation_state.last_point {
-        if target_pos.distance(last_point) < config.duplicate_threshold {
-            debug!("Ignoring duplicate point at {target_pos:?}");
+    if let Some(last_point_entity) = curve_creation_state.last_point_entity {
+        if point_entity == last_point_entity {
+            debug!("Ignoring duplicate point entity {point_entity:?}");
             return;
         }
     }
 
     // Log snapping behavior
-    if (target_pos - cursor_pos.0).length() > 0.1 {
+    if (target_pos - cursor_state.cursor_position).length() > 0.1 {
         debug!(
             "Snapped cursor from {:?} to existing point {:?}",
-            cursor_pos.0, target_pos
+            cursor_state.cursor_position, target_pos
         );
     }
 
@@ -116,7 +114,7 @@ fn handle_curve_creation(
         "Tool: {:?}, State: {:?}, Points: {}/4",
         tool_state.current(),
         curve_creation_state.curve_creation_state,
-        curve_creation_state.curve_creation_points.len()
+        curve_creation_state.curve_creation_point_entities.len()
     );
 
     match curve_creation_state.curve_creation_state {
@@ -124,20 +122,29 @@ fn handle_curve_creation(
             // Start collecting points - should have 0 points here
             debug!("In Idle state, clearing points and starting new curve");
             curve_creation_state.reset(&mut commands);
-            curve_creation_state.curve_creation_points.push(target_pos);
-            curve_creation_state.last_point = Some(target_pos);
+            curve_creation_state
+                .curve_creation_point_entities
+                .push(point_entity);
+            curve_creation_state.last_point_entity = Some(point_entity);
             curve_creation_state.curve_creation_state = CurveCreationState::CollectingPoints;
-            debug!("Started cubic Bézier curve creation. Added point: {target_pos:?} (total: 1/4)");
+            debug!(
+                "Started cubic Bézier curve creation. Added point entity: {point_entity:?} at {target_pos:?} (total: 1/4)"
+            );
         }
         CurveCreationState::CollectingPoints => {
-            curve_creation_state.curve_creation_points.push(target_pos);
-            curve_creation_state.last_point = Some(target_pos);
-            let point_count = curve_creation_state.curve_creation_points.len();
-            debug!("Added point: {target_pos:?} (total: {point_count}/4)");
+            curve_creation_state
+                .curve_creation_point_entities
+                .push(point_entity);
+            curve_creation_state.last_point_entity = Some(point_entity);
+            let point_count = curve_creation_state.curve_creation_point_entities.len();
+            debug!(
+                "Added point entity: {point_entity:?} at {target_pos:?} (total: {point_count}/4)"
+            );
 
             if point_count == 4 {
                 // Automatically create the curve
-                let curve = BezierCurve::new(curve_creation_state.curve_creation_points.clone());
+                let curve =
+                    BezierCurve::new(curve_creation_state.curve_creation_point_entities.clone());
                 commands.spawn(curve);
 
                 // Reset state for next curve
@@ -148,6 +155,7 @@ fn handle_curve_creation(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_curve_creation_points(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -155,7 +163,8 @@ fn render_curve_creation_points(
     tool_state: Res<ToolState>,
     mut curve_creation_state: ResMut<CurveCreationToolState>,
     config: Res<CurveCreationConfig>,
-    existing_points: Query<(Entity, &CurveCreationPoint)>,
+    existing_previews: Query<(Entity, &CurveCreationPoint)>,
+    point_query: Query<&Point>,
 ) {
     // Clear existing creation points if not in create mode
     if !tool_state.is_currently_using_tool(Tool::CreateCurve) {
@@ -164,48 +173,49 @@ fn render_curve_creation_points(
     }
 
     // Only render if we have points
-    if curve_creation_state.curve_creation_points.is_empty() {
+    if curve_creation_state
+        .curve_creation_point_entities
+        .is_empty()
+    {
         return;
     }
 
     // Check if we need to update the rendered points
-    let existing_count = existing_points.iter().count();
-    if existing_count == curve_creation_state.curve_creation_points.len() {
+    let existing_count = existing_previews.iter().count();
+    if existing_count == curve_creation_state.curve_creation_point_entities.len() {
         return; // No change needed
     }
 
     debug!(
         "Updating points. Existing: {}, Current: {}",
         existing_count,
-        curve_creation_state.curve_creation_points.len()
+        curve_creation_state.curve_creation_point_entities.len()
     );
 
-    // Clear existing creation points and state entities
-    for (entity, _) in existing_points.iter() {
+    // Clear existing creation preview entities
+    for (entity, _) in existing_previews.iter() {
         commands.entity(entity).despawn();
     }
-    curve_creation_state.point_entities.clear();
 
-    // Collect points to avoid borrow checker issues
-    let points_to_render: Vec<Vec2> = curve_creation_state.curve_creation_points.clone();
+    // Collect point entities to avoid borrow checker issues
+    let point_entities_to_render = curve_creation_state.curve_creation_point_entities.clone();
 
-    // Render new points
-    for point_pos in points_to_render {
-        let entity = render_simple_circle(
-            &mut commands,
-            &mut meshes,
-            &mut materials,
-            point_pos,
-            config.point_radius,
-            config.point_color,
-            config.z_layer,
-        );
+    // Render new preview points
+    for point_entity in point_entities_to_render {
+        if let Ok(point_pos) = point_query.get(point_entity) {
+            let preview_entity = render_simple_circle(
+                &mut commands,
+                &mut meshes,
+                &mut materials,
+                point_pos.position(),
+                config.point_radius,
+                config.point_color,
+                config.z_layer,
+            );
 
-        // Add the component marker
-        commands.entity(entity).insert(CurveCreationPoint);
-
-        // Store entity in our state
-        curve_creation_state.point_entities.push(entity);
+            // Add the component marker
+            commands.entity(preview_entity).insert(CurveCreationPoint);
+        }
     }
 }
 

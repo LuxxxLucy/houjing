@@ -1,48 +1,41 @@
-use crate::component::curve::BezierCurve;
+use crate::component::curve::Point;
 use bevy::prelude::*;
 
-/// Information about a found control point
-#[derive(Debug, Clone, Copy)]
-pub struct FoundControlPoint {
-    pub curve_entity: Entity,
-    pub point_index: usize,
-    pub position: Vec2,
-}
-
-/// Find the closest control point to a given position within a maximum distance
-pub fn find_closest_control_point(
+/// Find the closest point to a given position within a maximum distance
+/// Searches both standalone points and curve control points, returning the closest one
+pub fn find_closest_point(
     target_pos: Vec2,
-    curves: &Query<(Entity, &BezierCurve)>,
+    point_query: &Query<(Entity, &Point)>,
     max_distance: f32,
-) -> Option<FoundControlPoint> {
+) -> Option<Entity> {
     let mut closest_point = None;
     let mut closest_distance = max_distance;
 
-    for (curve_entity, curve) in curves.iter() {
-        for (point_index, &point_pos) in curve.control_points.iter().enumerate() {
-            let distance = target_pos.distance(point_pos);
-            if distance < closest_distance {
-                closest_distance = distance;
-                closest_point = Some(FoundControlPoint {
-                    curve_entity,
-                    point_index,
-                    position: point_pos,
-                });
-            }
+    // Search standalone points
+    for (entity, point_pos) in point_query.iter() {
+        let distance = target_pos.distance(point_pos.position());
+        if distance < closest_distance {
+            closest_distance = distance;
+            closest_point = Some(entity);
         }
     }
 
     closest_point
 }
 
-/// Find the closest control point position for snapping purposes
-/// Returns the snapped position if found, otherwise returns the original position
-pub fn snap_to_closest_point(
+/// Find the closest point for snapping purposes, whether it's part of a curve or standalone
+/// Returns the point entity if found, otherwise creates a new point at cursor position
+pub fn find_or_create_point_for_snapping(
     cursor_pos: Vec2,
-    curves: &Query<(Entity, &BezierCurve)>,
+    commands: &mut Commands,
+    point_query: &Query<(Entity, &Point)>,
     snap_threshold: f32,
-) -> Vec2 {
-    find_closest_control_point(cursor_pos, curves, snap_threshold)
-        .map(|found| found.position)
-        .unwrap_or(cursor_pos)
+) -> Entity {
+    // First try to find existing point entity
+    if let Some(point_entity) = find_closest_point(cursor_pos, point_query, snap_threshold) {
+        return point_entity;
+    }
+
+    // No existing point found, create new one
+    commands.spawn(Point::new(cursor_pos)).id()
 }

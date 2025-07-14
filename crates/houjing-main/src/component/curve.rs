@@ -7,6 +7,117 @@ const DEFAULT_CURVE_COLOR: Color = Color::WHITE;
 const DEFAULT_CURVE_SEGMENTS: u32 = 50;
 const DEFAULT_CURVE_Z_LAYER: f32 = 0.0;
 
+/// Component representing a control point position
+/// Points are now separate entities that can be shared between curves
+#[derive(Component, Debug, Clone, Copy)]
+pub struct Point(pub Vec2);
+
+impl Point {
+    pub fn new(position: Vec2) -> Self {
+        Self(position)
+    }
+
+    pub fn position(&self) -> Vec2 {
+        self.0
+    }
+
+    pub fn set_position(&mut self, position: Vec2) {
+        self.0 = position;
+    }
+}
+
+/// Get the position of a point entity
+pub fn get_position(point_entity: Entity, point_query: &Query<(Entity, &Point)>) -> Option<Vec2> {
+    point_query
+        .get(point_entity)
+        .ok()
+        .map(|(_, point)| point.position())
+}
+
+#[derive(Component)]
+pub struct BezierCurve {
+    pub point_entities: Vec<Entity>,
+}
+
+impl BezierCurve {
+    pub fn new(point_entities: Vec<Entity>) -> Self {
+        Self { point_entities }
+    }
+
+    /// Resolve point entities to their actual positions
+    /// Returns None if any point entity is missing or invalid
+    pub fn resolve_positions(&self, point_query: &Query<&Point>) -> Option<Vec<Vec2>> {
+        let mut positions = Vec::with_capacity(self.point_entities.len());
+
+        for &entity in &self.point_entities {
+            let point = point_query.get(entity).ok()?;
+            positions.push(point.position());
+        }
+
+        Some(positions)
+    }
+
+    /// Evaluate a Bezier curve at parameter t given control points
+    pub fn evaluate_bezier(control_points: &[Vec2], t: f32) -> Vec2 {
+        match control_points.len() {
+            2 => {
+                // Linear interpolation
+                control_points[0].lerp(control_points[1], t)
+            }
+            3 => Self::evaluate_quadratic_bezier(control_points, t),
+            4 => Self::evaluate_cubic_bezier(control_points, t),
+            _ => panic!(
+                "Unsupported number of control points: {}",
+                control_points.len()
+            ),
+        }
+    }
+
+    fn evaluate_quadratic_bezier(control_points: &[Vec2], t: f32) -> Vec2 {
+        let p0 = control_points[0];
+        let p1 = control_points[1];
+        let p2 = control_points[2];
+
+        let one_minus_t = 1.0 - t;
+        let one_minus_t_sq = one_minus_t * one_minus_t;
+        let t_sq = t * t;
+
+        one_minus_t_sq * p0 + 2.0 * one_minus_t * t * p1 + t_sq * p2
+    }
+
+    fn evaluate_cubic_bezier(control_points: &[Vec2], t: f32) -> Vec2 {
+        let p0 = control_points[0];
+        let p1 = control_points[1];
+        let p2 = control_points[2];
+        let p3 = control_points[3];
+
+        let one_minus_t = 1.0 - t;
+        let one_minus_t_sq = one_minus_t * one_minus_t;
+        let one_minus_t_cu = one_minus_t_sq * one_minus_t;
+        let t_sq = t * t;
+        let t_cu = t_sq * t;
+
+        one_minus_t_cu * p0
+            + 3.0 * one_minus_t_sq * t * p1
+            + 3.0 * one_minus_t * t_sq * p2
+            + t_cu * p3
+    }
+}
+
+/// Find which curve contains the given point entity and at what index
+/// Returns the curve entity and the index of the point within that curve
+pub fn find_curve_containing_point(
+    point_entity: Entity,
+    curve_query: &Query<(Entity, &BezierCurve)>,
+) -> Option<(Entity, usize)> {
+    for (curve_entity, curve) in curve_query.iter() {
+        if let Some(index) = curve.point_entities.iter().position(|&e| e == point_entity) {
+            return Some((curve_entity, index));
+        }
+    }
+    None
+}
+
 #[derive(Resource)]
 pub struct CurveRenderingConfig {
     pub color: Color,
@@ -23,15 +134,6 @@ impl Default for CurveRenderingConfig {
         }
     }
 }
-
-#[derive(Component)]
-pub struct BezierCurve {
-    pub control_points: Vec<Vec2>,
-}
-
-// mark the curve as needing update
-#[derive(Component)]
-pub struct CurveNeedsUpdate;
 
 pub struct CurveRenderingPlugin;
 
@@ -50,42 +152,66 @@ fn create_new_curves(
     mut materials: ResMut<Assets<ColorMaterial>>,
     config: Res<CurveRenderingConfig>,
     curve_query: Query<(Entity, &BezierCurve), Without<Handle<Mesh>>>,
+    point_query: Query<&Point>,
 ) {
     for (entity, curve) in curve_query.iter() {
-        let mesh = create_curve_mesh(curve, &config);
-        let mesh_handle = meshes.add(mesh);
-        let material_handle = materials.add(ColorMaterial::from(config.color));
+        if let Some(mesh) = create_curve_mesh(curve, &config, &point_query) {
+            let mesh_handle = meshes.add(mesh);
+            let material_handle = materials.add(ColorMaterial::from(config.color));
 
-        commands.entity(entity).insert((MaterialMesh2dBundle {
-            mesh: Mesh2dHandle(mesh_handle),
-            material: material_handle,
-            transform: Transform::from_translation(Vec3::new(0.0, 0.0, config.z_layer)),
-            ..default()
-        },));
+            commands.entity(entity).insert((MaterialMesh2dBundle {
+                mesh: Mesh2dHandle(mesh_handle),
+                material: material_handle,
+                transform: Transform::from_translation(Vec3::new(0.0, 0.0, config.z_layer)),
+                ..default()
+            },));
+        }
     }
 }
 
 fn update_curve_if_needed(
-    mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     config: Res<CurveRenderingConfig>,
-    curve_query: Query<(Entity, &BezierCurve, &Mesh2dHandle), With<CurveNeedsUpdate>>,
+    curve_query: Query<(Entity, &BezierCurve, &Mesh2dHandle)>,
+    changed_points: Query<Entity, (With<Point>, Changed<Point>)>,
+    all_points: Query<&Point>,
 ) {
-    for (entity, curve, mesh_handle) in curve_query.iter() {
-        let new_mesh = create_curve_mesh(curve, &config);
-        meshes.insert(mesh_handle.0.clone(), new_mesh);
-        commands.entity(entity).remove::<CurveNeedsUpdate>();
+    // If no points have changed, skip update
+    if changed_points.is_empty() {
+        return;
+    }
+
+    // Get all changed point entities
+    let changed_point_entities: std::collections::HashSet<Entity> = changed_points.iter().collect();
+
+    for (_entity, curve, mesh_handle) in curve_query.iter() {
+        // Check if this curve references any changed points
+        let needs_update = curve
+            .point_entities
+            .iter()
+            .any(|&point_entity| changed_point_entities.contains(&point_entity));
+
+        if needs_update {
+            if let Some(new_mesh) = create_curve_mesh(curve, &config, &all_points) {
+                meshes.insert(mesh_handle.0.clone(), new_mesh);
+            }
+        }
     }
 }
 
-fn create_curve_mesh(curve: &BezierCurve, config: &CurveRenderingConfig) -> Mesh {
+fn create_curve_mesh(
+    curve: &BezierCurve,
+    config: &CurveRenderingConfig,
+    point_query: &Query<&Point>,
+) -> Option<Mesh> {
+    let control_points = curve.resolve_positions(point_query)?;
     let segments = config.segments;
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
 
     for i in 0..=segments {
         let t = i as f32 / segments as f32;
-        let point = curve.evaluate(t);
+        let point = BezierCurve::evaluate_bezier(&control_points, t);
         vertices.push([point.x, point.y, 0.0]);
 
         if i < segments {
@@ -103,7 +229,7 @@ fn create_curve_mesh(curve: &BezierCurve, config: &CurveRenderingConfig) -> Mesh
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vertices);
     mesh.insert_indices(bevy::render::mesh::Indices::U32(indices));
 
-    mesh
+    Some(mesh)
 }
 
 #[cfg(test)]
@@ -113,15 +239,11 @@ mod tests {
 
     #[test]
     fn test_curve_evaluation() {
-        let quadratic_curve = BezierCurve::new(vec![
-            Vec2::ZERO,
-            Vec2::new(50.0, 100.0),
-            Vec2::new(100.0, 0.0),
-        ]);
+        let control_points = vec![Vec2::ZERO, Vec2::new(50.0, 100.0), Vec2::new(100.0, 0.0)];
 
-        let start_point = quadratic_curve.evaluate(0.0);
-        let end_point = quadratic_curve.evaluate(1.0);
-        let mid_point = quadratic_curve.evaluate(0.5);
+        let start_point = BezierCurve::evaluate_bezier(&control_points, 0.0);
+        let end_point = BezierCurve::evaluate_bezier(&control_points, 1.0);
+        let mid_point = BezierCurve::evaluate_bezier(&control_points, 0.5);
 
         assert_eq!(start_point, Vec2::ZERO);
         assert_eq!(end_point, Vec2::new(100.0, 0.0));
@@ -129,13 +251,13 @@ mod tests {
     }
 
     #[test]
-    fn test_curve_control_points_data() {
-        let points = vec![Vec2::ZERO, Vec2::new(100.0, 50.0)];
-        let curve = BezierCurve::new(points.clone());
+    fn test_point_position_component() {
+        let point = Point::new(Vec2::new(10.0, 20.0));
+        assert_eq!(point.position(), Vec2::new(10.0, 20.0));
 
-        assert_eq!(curve.control_points.len(), 2);
-        assert_eq!(curve.control_points[0], Vec2::ZERO);
-        assert_eq!(curve.control_points[1], Vec2::new(100.0, 50.0));
+        let mut point = Point::new(Vec2::ZERO);
+        point.set_position(Vec2::new(30.0, 40.0));
+        assert_eq!(point.position(), Vec2::new(30.0, 40.0));
     }
 
     #[test]
@@ -148,88 +270,22 @@ mod tests {
             .init_resource::<CurveRenderingConfig>()
             .add_systems(Update, (create_new_curves, update_curve_if_needed));
 
-        // Create a test curve
-        let initial_points = vec![Vec2::ZERO, Vec2::new(50.0, 100.0), Vec2::new(100.0, 0.0)];
-        let curve = BezierCurve::new(initial_points);
-        let curve_entity = app.world.spawn(curve).id();
+        // Create test point
+        let point2 = app.world.spawn(Point::new(Vec2::new(50.0, 100.0))).id();
 
         // Run one update to create the mesh components
         app.update();
 
-        // Modify the curve control points
-        let new_points = vec![
-            Vec2::new(10.0, 10.0),
-            Vec2::new(60.0, 110.0),
-            Vec2::new(110.0, 10.0),
-        ];
-
-        if let Some(mut curve) = app.world.get_mut::<BezierCurve>(curve_entity) {
-            curve.control_points = new_points.clone();
+        // Modify a point position
+        if let Some(mut point) = app.world.get_mut::<Point>(point2) {
+            point.set_position(Vec2::new(60.0, 110.0));
         }
 
-        // Add CurveNeedsUpdate component to trigger re-rendering
-        app.world.entity_mut(curve_entity).insert(CurveNeedsUpdate);
-
-        // Run update to process the mesh update
+        // Run update to process the automatic change detection
         app.update();
 
-        // Verify curve has updated control points
-        let curve = app.world.get::<BezierCurve>(curve_entity).unwrap();
-        assert_eq!(curve.control_points.len(), 3);
-
-        for (i, &expected_point) in new_points.iter().enumerate() {
-            assert_eq!(curve.control_points[i], expected_point);
-        }
-
-        // Verify CurveNeedsUpdate was removed after processing
-        assert!(app.world.get::<CurveNeedsUpdate>(curve_entity).is_none());
-    }
-}
-
-impl BezierCurve {
-    pub fn new(control_points: Vec<Vec2>) -> Self {
-        Self { control_points }
-    }
-
-    pub fn evaluate(&self, t: f32) -> Vec2 {
-        match self.control_points.len() {
-            2 => {
-                // Linear interpolation
-                self.control_points[0].lerp(self.control_points[1], t)
-            }
-            3 => self.evaluate_quadratic(t),
-            4 => self.evaluate_cubic(t),
-            _ => panic!("Unsupported number of control points"),
-        }
-    }
-
-    fn evaluate_quadratic(&self, t: f32) -> Vec2 {
-        let p0 = self.control_points[0];
-        let p1 = self.control_points[1];
-        let p2 = self.control_points[2];
-
-        let one_minus_t = 1.0 - t;
-        let one_minus_t_sq = one_minus_t * one_minus_t;
-        let t_sq = t * t;
-
-        one_minus_t_sq * p0 + 2.0 * one_minus_t * t * p1 + t_sq * p2
-    }
-
-    fn evaluate_cubic(&self, t: f32) -> Vec2 {
-        let p0 = self.control_points[0];
-        let p1 = self.control_points[1];
-        let p2 = self.control_points[2];
-        let p3 = self.control_points[3];
-
-        let one_minus_t = 1.0 - t;
-        let one_minus_t_sq = one_minus_t * one_minus_t;
-        let one_minus_t_cu = one_minus_t_sq * one_minus_t;
-        let t_sq = t * t;
-        let t_cu = t_sq * t;
-
-        one_minus_t_cu * p0
-            + 3.0 * one_minus_t_sq * t * p1
-            + 3.0 * one_minus_t * t_sq * p2
-            + t_cu * p3
+        // Verify point has updated position
+        let point = app.world.get::<Point>(point2).unwrap();
+        assert_eq!(point.position(), Vec2::new(60.0, 110.0));
     }
 }

@@ -1,32 +1,15 @@
 use crate::InputSet;
 use bevy::prelude::*;
 
-use super::tool::{Tool, ToolState};
-
 #[derive(Resource, Default)]
 pub struct CursorWorldPos(pub Vec2);
 
 #[derive(Resource, Default)]
 pub struct CursorState {
-    pub cursor_just_pressed: bool,
-    pub dragging: bool,
-    pub drag_start_pos: Vec2,
-}
-
-// Default cursor configuration constants
-const DEFAULT_DRAG_THRESHOLD: f32 = 5.0;
-
-#[derive(Resource)]
-pub struct CursorConfig {
-    pub drag_threshold: f32,
-}
-
-impl Default for CursorConfig {
-    fn default() -> Self {
-        Self {
-            drag_threshold: DEFAULT_DRAG_THRESHOLD,
-        }
-    }
+    pub mouse_just_pressed: bool,
+    pub cursor_position: Vec2,
+    pub mouse_pressed: bool,
+    pub mouse_just_released: bool,
 }
 
 // Default cursor visualization configuration constants
@@ -53,14 +36,12 @@ impl Plugin for CursorPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CursorWorldPos>()
             .init_resource::<CursorState>()
-            .init_resource::<CursorConfig>()
             .init_resource::<CursorVisualizationConfig>()
             .add_systems(
                 Update,
                 (
                     update_cursor_world_position,
                     handle_cursor_input,
-                    manage_cursor_visibility,
                     debug_cursor_position,
                 )
                     .in_set(InputSet),
@@ -87,46 +68,22 @@ fn handle_cursor_input(
     mut cursor_state: ResMut<CursorState>,
     cursor_input: Res<ButtonInput<MouseButton>>,
     cursor_pos: Res<CursorWorldPos>,
-    config: Res<CursorConfig>,
 ) {
     let just_pressed = cursor_input.just_pressed(MouseButton::Left);
     let pressed = cursor_input.pressed(MouseButton::Left);
     let just_released = cursor_input.just_released(MouseButton::Left);
 
-    if just_pressed {
-        cursor_state.drag_start_pos = cursor_pos.0;
-        cursor_state.dragging = false;
-    }
-
-    if pressed
-        && !cursor_state.dragging
-        && cursor_pos.0.distance(cursor_state.drag_start_pos) > config.drag_threshold
-    {
-        cursor_state.dragging = true;
-    }
-
-    if just_released {
-        cursor_state.dragging = false;
-    }
-    cursor_state.cursor_just_pressed = just_pressed;
+    cursor_state.cursor_position = cursor_pos.0;
+    cursor_state.mouse_pressed = pressed;
+    cursor_state.mouse_just_released = just_released;
+    cursor_state.mouse_just_pressed = just_pressed;
 }
 
 fn debug_cursor_position(cursor_pos: Res<CursorWorldPos>, cursor_state: Res<CursorState>) {
-    if cursor_state.cursor_just_pressed {
-        debug!("Cursor clicked at: {:?}", cursor_pos.0);
-    }
-}
-
-// disable system cursor when dragging (except for hand tool which needs visible cursor)
-fn manage_cursor_visibility(
-    cursor_state: Res<CursorState>,
-    tool_state: Res<ToolState>,
-    mut windows: Query<&mut Window>,
-) {
-    if let Ok(mut window) = windows.get_single_mut() {
-        // Hide system cursor when dragging, UNLESS using hand tool which needs visible cursor
-        let should_hide_cursor =
-            cursor_state.dragging && !tool_state.is_currently_using_tool(Tool::Hand);
-        window.cursor.visible = !should_hide_cursor;
+    if cursor_state.mouse_just_pressed {
+        debug!(
+            "Cursor at: {:?}, pressed: {}, just_pressed: {}",
+            cursor_pos.0, cursor_state.mouse_pressed, cursor_state.mouse_just_pressed
+        );
     }
 }

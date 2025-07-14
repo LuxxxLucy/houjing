@@ -1,13 +1,12 @@
-use super::common::selected::SelectedControlPoint;
-use super::cursor::{CursorState, CursorWorldPos};
+use super::common::selected::{SelectedControlPoint, move_selected_points};
+use super::cursor::{CursorState, CursorVisualizationConfig};
+use super::select::SelectionToolState;
 use super::tool::{Tool, ToolState};
-use crate::component::curve::{BezierCurve, CurveNeedsUpdate};
+use crate::component::curve::Point;
 use crate::rendering::render_simple_rectangle;
-use crate::systems::tools::cursor::CursorVisualizationConfig;
 use crate::{InputSet, ShowSet};
 use bevy::prelude::*;
 use bevy::sprite::ColorMaterial;
-use std::collections::HashMap;
 
 // Animation parameters for drag selection wireframe
 const DASH_LENGTH: f32 = 6.0;
@@ -17,9 +16,11 @@ const ANIMATION_SPEED: f32 = 40.0; // pixels per second
 // Visual element sizes
 const DRAG_START_INDICATOR_RADIUS: f32 = 4.0;
 
+// Drag behavior configuration constants
+const DEFAULT_DRAG_THRESHOLD: f32 = 5.0;
+
 // Default curve visualization during drag configuration constants
 const DEFAULT_DRAG_CURVE_COLOR: Color = Color::ORANGE;
-const DEFAULT_DRAG_ORIGINAL_CURVE_ALPHA: f32 = 0.3;
 const DEFAULT_DRAG_START_INDICATOR_ALPHA: f32 = 0.5;
 
 // Default drag selection rectangle configuration constants
@@ -28,9 +29,21 @@ const DEFAULT_DRAG_SELECTION_BACKGROUND_ALPHA: f32 = 0.1;
 const DEFAULT_DRAG_SELECTION_WIREFRAME_ALPHA: f32 = 0.8;
 
 #[derive(Resource)]
+pub struct DragConfig {
+    pub drag_threshold: f32,
+}
+
+impl Default for DragConfig {
+    fn default() -> Self {
+        Self {
+            drag_threshold: DEFAULT_DRAG_THRESHOLD,
+        }
+    }
+}
+
+#[derive(Resource)]
 pub struct DragCurveVisualizationConfig {
     pub drag_color: Color,
-    pub original_curve_alpha: f32,
     pub start_indicator_alpha: f32,
 }
 
@@ -38,7 +51,6 @@ impl Default for DragCurveVisualizationConfig {
     fn default() -> Self {
         Self {
             drag_color: DEFAULT_DRAG_CURVE_COLOR,
-            original_curve_alpha: DEFAULT_DRAG_ORIGINAL_CURVE_ALPHA,
             start_indicator_alpha: DEFAULT_DRAG_START_INDICATOR_ALPHA,
         }
     }
@@ -70,28 +82,31 @@ pub struct DragToolState {
 }
 
 impl DragToolState {
+    #[allow(dead_code)]
     pub fn reset(&mut self, commands: &mut Commands) {
-        self.selected_points.reset(commands);
         self.rectangle.reset(commands);
+        self.selected_points.reset(commands);
     }
 }
 
 #[derive(Default)]
 pub struct SelectedPointDragState {
-    /// Original curve states before dragging
-    pub original_curves: HashMap<Entity, Vec<Vec2>>,
-    /// Current positions of selected points during drag
-    pub current_positions: HashMap<(Entity, usize), Vec2>,
+    /// Drag start position
+    pub drag_start: Option<Vec2>,
+    /// Previous cursor position for calculating delta
+    pub previous_cursor_position: Option<Vec2>,
     /// Whether point dragging is active
     pub is_active: bool,
+    /// Whether we've exceeded the drag threshold (started actual dragging)
+    pub is_dragging: bool,
 }
 
 impl SelectedPointDragState {
-    /// Reset the selected point drag state
     fn reset(&mut self, _commands: &mut Commands) {
-        self.original_curves.clear();
-        self.current_positions.clear();
+        self.drag_start = None;
+        self.previous_cursor_position = None;
         self.is_active = false;
+        self.is_dragging = false;
     }
 }
 
@@ -104,9 +119,7 @@ pub struct NoSelectedPointDragState {
 }
 
 impl NoSelectedPointDragState {
-    /// Reset the no selected point drag state
     fn reset(&mut self, commands: &mut Commands) {
-        // Clear entity if it exists
         if let Some(entity) = self.entity {
             commands.entity(entity).despawn();
         }
@@ -115,15 +128,13 @@ impl NoSelectedPointDragState {
     }
 }
 
-/// Rectangle for drag selection
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct DragRect {
     pub origin: Vec2,
     pub width: f32,
     pub height: f32,
 }
 
-/// Component marker for no selected point drag rectangle entity
 #[derive(Component)]
 pub struct NoSelectedPointDragRectangle;
 
@@ -132,6 +143,7 @@ pub struct DragPlugin;
 impl Plugin for DragPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<DragToolState>()
+            .init_resource::<DragConfig>()
             .init_resource::<DragCurveVisualizationConfig>()
             .init_resource::<DragSelectionRectangleConfig>()
             .add_systems(
@@ -149,139 +161,123 @@ impl Plugin for DragPlugin {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_selected_point_drag_state(
     cursor_state: Res<CursorState>,
-    cursor_pos: Res<CursorWorldPos>,
     mut commands: Commands,
-    selected_query: Query<&SelectedControlPoint>,
-    mut curve_query: Query<&mut BezierCurve>,
+    selection_state: Res<SelectionToolState>,
     mut drag_state: ResMut<DragToolState>,
     tool_state: Res<ToolState>,
+    drag_config: Res<DragConfig>,
+    selected_query: Query<&SelectedControlPoint>,
+    mut point_query: Query<&mut Point>,
 ) {
-    // Check if we should disable drag (when in hand mode), reset state if so
-    if tool_state.is_currently_using_tool(Tool::Hand) {
-        drag_state.reset(&mut commands);
+    // Only handle drag when we have selected points and are using select tool
+    if !tool_state.is_currently_using_tool(Tool::Select)
+        || selection_state.selected_points.is_empty()
+    {
+        drag_state.selected_points.reset(&mut commands);
         return;
     }
 
-    let has_selected_points = !selected_query.is_empty();
-    let is_dragging = cursor_state.dragging && has_selected_points;
-
-    if is_dragging {
-        // Initialize original curves if not already done
-        if drag_state.selected_points.original_curves.is_empty() {
-            debug!(
-                "Capturing original curve states for {} selected points",
-                selected_query.iter().count()
-            );
-            for selected_point in selected_query.iter() {
-                if let Ok(curve) = curve_query.get(selected_point.curve_entity) {
-                    debug!(
-                        "Storing original state for curve entity {:?} with {} control points",
-                        selected_point.curve_entity,
-                        curve.control_points.len()
-                    );
-                    drag_state
-                        .selected_points
-                        .original_curves
-                        .insert(selected_point.curve_entity, curve.control_points.clone());
-                }
-            }
-            debug!(
-                "Total curves stored: {}",
-                drag_state.selected_points.original_curves.len()
-            );
-        }
-
-        // Update current positions for selected points
-        for selected_point in selected_query.iter() {
-            let key = (selected_point.curve_entity, selected_point.point_index);
-            drag_state
-                .selected_points
-                .current_positions
-                .insert(key, cursor_pos.0);
-        }
+    if cursor_state.mouse_just_pressed {
+        // Start drag: store original positions
+        drag_state.selected_points.reset(&mut commands);
+        drag_state.selected_points.drag_start = Some(cursor_state.cursor_position);
+        drag_state.selected_points.previous_cursor_position = Some(cursor_state.cursor_position);
 
         drag_state.selected_points.is_active = true;
+        drag_state.selected_points.is_dragging = false;
+    }
 
-        // Update curve points using current positions from drag state
-        for selected_point in selected_query.iter() {
-            if let Ok(mut curve) = curve_query.get_mut(selected_point.curve_entity) {
-                if let Some(point) = curve.control_points.get_mut(selected_point.point_index) {
-                    let key = (selected_point.curve_entity, selected_point.point_index);
-                    if let Some(&current_pos) =
-                        drag_state.selected_points.current_positions.get(&key)
-                    {
-                        *point = current_pos;
+    if cursor_state.mouse_pressed && drag_state.selected_points.is_active {
+        // Check if we've exceeded the drag threshold
+        if let Some(drag_start) = drag_state.selected_points.drag_start {
+            let distance = cursor_state.cursor_position.distance(drag_start);
+            if !drag_state.selected_points.is_dragging && distance > drag_config.drag_threshold {
+                drag_state.selected_points.is_dragging = true;
+            }
 
-                        // Mark curve for mesh update
-                        commands
-                            .entity(selected_point.curve_entity)
-                            .insert(CurveNeedsUpdate);
+            // Continue drag: update point positions whenever mouse is held down and we're dragging
+            if drag_state.selected_points.is_dragging {
+                if let Some(previous_pos) = drag_state.selected_points.previous_cursor_position {
+                    let delta = cursor_state.cursor_position - previous_pos;
+                    if delta.length() > 0.0 {
+                        // Move all selected points by the cursor delta
+                        move_selected_points(&selected_query, &mut point_query, delta);
                     }
                 }
+                // Update previous cursor position for next frame
+                drag_state.selected_points.previous_cursor_position =
+                    Some(cursor_state.cursor_position);
             }
         }
-    } else {
-        // Clear state when not dragging
-        drag_state.selected_points.original_curves.clear();
-        drag_state.selected_points.current_positions.clear();
-        drag_state.selected_points.is_active = false;
+    } else if cursor_state.mouse_just_released && drag_state.selected_points.is_active {
+        // End drag when mouse is released
+        drag_state.reset(&mut commands);
     }
 }
 
 fn handle_no_selected_point_drag_state(
     cursor_state: Res<CursorState>,
-    cursor_pos: Res<CursorWorldPos>,
-    selected_query: Query<&SelectedControlPoint>,
+    selection_state: Res<SelectionToolState>,
     mut drag_state: ResMut<DragToolState>,
     tool_state: Res<ToolState>,
     mut commands: Commands,
 ) {
-    // Check if we should disable drag (when in hand mode), reset state if so
-    if tool_state.is_currently_using_tool(Tool::Hand) {
-        drag_state.reset(&mut commands);
+    // Only handle rectangle drag when no points are selected and using select tool
+    if !tool_state.is_currently_using_tool(Tool::Select)
+        || !selection_state.selected_points.is_empty()
+    {
+        drag_state.rectangle.reset(&mut commands);
         return;
     }
 
-    let should_have_no_selected_point_drag = cursor_state.dragging && selected_query.is_empty();
-
-    if should_have_no_selected_point_drag {
-        // Calculate no selected point drag rectangle
-        let start = cursor_state.drag_start_pos;
-        let end = cursor_pos.0;
-        let min_x = start.x.min(end.x);
-        let max_x = start.x.max(end.x);
-        let min_y = start.y.min(end.y);
-        let max_y = start.y.max(end.y);
-
+    if cursor_state.mouse_just_pressed {
+        // Start rectangle selection
         drag_state.rectangle.rect = Some(DragRect {
-            origin: Vec2::new(min_x, min_y),
-            width: max_x - min_x,
-            height: max_y - min_y,
+            origin: cursor_state.cursor_position,
+            width: 0.0,
+            height: 0.0,
         });
-    } else {
-        drag_state.rectangle.rect = None;
+    } else if cursor_state.mouse_pressed {
+        // Update rectangle while mouse is held down
+        if let Some(ref mut rect) = drag_state.rectangle.rect {
+            let delta = cursor_state.cursor_position - rect.origin;
+            rect.width = delta.x;
+            rect.height = delta.y;
+        }
+    } else if cursor_state.mouse_just_released && drag_state.rectangle.rect.is_some() {
+        // End rectangle selection when mouse is released
+        // TODO: Implement point selection within rectangle
+        drag_state.rectangle.reset(&mut commands);
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_selected_point_drag(
     mut gizmos: Gizmos,
     cursor_state: Res<CursorState>,
     config: Res<CursorVisualizationConfig>,
     drag_config: Res<DragCurveVisualizationConfig>,
-    selected_query: Query<&SelectedControlPoint>,
+    selection_state: Res<SelectionToolState>,
     drag_state: Res<DragToolState>,
     tool_state: Res<ToolState>,
 ) {
-    // Don't render when in hand mode
-    if tool_state.is_currently_using_tool(Tool::Hand) {
+    if !tool_state.is_currently_using_tool(Tool::Select)
+        || selection_state.selected_points.is_empty()
+    {
         return;
     }
 
-    // Only show when dragging is active
-    if !drag_state.selected_points.is_active {
-        return;
+    // Render diamond cursor when dragging selected points
+    if drag_state.selected_points.is_dragging {
+        render_diamond_cursor(&mut gizmos, cursor_state.cursor_position, &config);
+    }
+
+    // Render drag start indicator
+    if let Some(drag_start) = drag_state.selected_points.drag_start {
+        render_drag_start_indicator(&mut gizmos, drag_start, &drag_config);
     }
 
     fn render_diamond_cursor(
@@ -289,20 +285,16 @@ fn render_selected_point_drag(
         cursor_pos: Vec2,
         config: &CursorVisualizationConfig,
     ) {
-        let color = config.drag_color;
         let half_size = config.cursor_size / 2.0;
+        let top = cursor_pos + Vec2::new(0.0, half_size);
+        let right = cursor_pos + Vec2::new(half_size, 0.0);
+        let bottom = cursor_pos + Vec2::new(0.0, -half_size);
+        let left = cursor_pos + Vec2::new(-half_size, 0.0);
 
-        // Draw diamond shape for drag cursor
-        let corners = [
-            cursor_pos + Vec2::new(0.0, half_size),  // top
-            cursor_pos + Vec2::new(half_size, 0.0),  // right
-            cursor_pos + Vec2::new(0.0, -half_size), // bottom
-            cursor_pos + Vec2::new(-half_size, 0.0), // left
-        ];
-
-        for i in 0..4 {
-            gizmos.line_2d(corners[i], corners[(i + 1) % 4], color);
-        }
+        gizmos.line_2d(top, right, config.drag_color);
+        gizmos.line_2d(right, bottom, config.drag_color);
+        gizmos.line_2d(bottom, left, config.drag_color);
+        gizmos.line_2d(left, top, config.drag_color);
     }
 
     fn render_drag_start_indicator(
@@ -310,66 +302,14 @@ fn render_selected_point_drag(
         start_pos: Vec2,
         drag_config: &DragCurveVisualizationConfig,
     ) {
-        gizmos.circle_2d(
-            start_pos,
-            DRAG_START_INDICATOR_RADIUS,
-            drag_config
-                .drag_color
-                .with_a(drag_config.start_indicator_alpha),
+        let color = Color::rgba(
+            drag_config.drag_color.r(),
+            drag_config.drag_color.g(),
+            drag_config.drag_color.b(),
+            drag_config.start_indicator_alpha,
         );
+        gizmos.circle_2d(start_pos, DRAG_START_INDICATOR_RADIUS, color);
     }
-
-    fn render_original_curve(
-        gizmos: &mut Gizmos,
-        control_points: &[Vec2],
-        drag_config: &DragCurveVisualizationConfig,
-    ) {
-        if control_points.len() < 2 {
-            return;
-        }
-
-        // Create a temporary curve for evaluation
-        let temp_curve = BezierCurve {
-            control_points: control_points.to_vec(),
-        };
-
-        // Render original curve as simple low-opacity line
-        let samples = 100;
-
-        for i in 0..samples {
-            let t1 = i as f32 / samples as f32;
-            let t2 = (i + 1) as f32 / samples as f32;
-            let p1 = temp_curve.evaluate(t1);
-            let p2 = temp_curve.evaluate(t2);
-
-            // Draw with low opacity to distinguish from current curve
-            gizmos.line_2d(
-                p1,
-                p2,
-                drag_config
-                    .drag_color
-                    .with_a(drag_config.original_curve_alpha),
-            );
-        }
-    }
-
-    // Render original curves as low-opacity lines
-    if !drag_state.selected_points.original_curves.is_empty() {
-        for original_curve_points in drag_state.selected_points.original_curves.values() {
-            render_original_curve(&mut gizmos, original_curve_points, &drag_config);
-        }
-    }
-
-    // Draw diamond cursors at current positions of selected points
-    for selected_point in selected_query.iter() {
-        let key = (selected_point.curve_entity, selected_point.point_index);
-        if let Some(&current_pos) = drag_state.selected_points.current_positions.get(&key) {
-            render_diamond_cursor(&mut gizmos, current_pos, &config);
-        }
-    }
-
-    // Draw drag start position indicator
-    render_drag_start_indicator(&mut gizmos, cursor_state.drag_start_pos, &drag_config);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -384,21 +324,15 @@ fn render_no_selected_point_drag(
     mut no_selected_point_drag_query: Query<&mut Transform, With<NoSelectedPointDragRectangle>>,
     tool_state: Res<ToolState>,
 ) {
-    // Don't render when in hand mode
-    if tool_state.is_currently_using_tool(Tool::Hand) {
-        // Clean up any existing rectangle when switching to hand mode
-        if let Some(entity) = drag_state.rectangle.entity {
-            commands.entity(entity).despawn();
-            drag_state.rectangle.entity = None;
-        }
+    if !tool_state.is_currently_using_tool(Tool::Select) {
         return;
     }
 
-    if let Some(no_selected_point_drag_rect) = drag_state.rectangle.rect {
-        // Render no selected point drag filled background
+    if let Some(rect) = drag_state.rectangle.rect {
+        // Render rectangle fill
         render_no_selected_point_drag_fill(
             &mut commands,
-            no_selected_point_drag_rect,
+            rect,
             &drag_selection_config,
             &mut drag_state.rectangle,
             &mut meshes,
@@ -406,21 +340,11 @@ fn render_no_selected_point_drag(
             &mut no_selected_point_drag_query,
         );
 
-        // Render no selected point drag animated wireframe
-        render_no_selected_point_drag_wireframe(
-            &mut gizmos,
-            no_selected_point_drag_rect,
-            &drag_selection_config,
-            &time,
-        );
-    } else if let Some(entity) = drag_state.rectangle.entity {
-        // Remove no selected point drag rectangle when not dragging
-        commands.entity(entity).despawn();
-        drag_state.rectangle.entity = None;
+        // Render animated wireframe
+        render_no_selected_point_drag_wireframe(&mut gizmos, rect, &drag_selection_config, &time);
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn render_no_selected_point_drag_fill(
     commands: &mut Commands,
     no_selected_point_drag_rect: DragRect,
@@ -430,45 +354,42 @@ fn render_no_selected_point_drag_fill(
     materials: &mut Assets<ColorMaterial>,
     no_selected_point_drag_query: &mut Query<&mut Transform, With<NoSelectedPointDragRectangle>>,
 ) {
-    if let Some(entity) = no_selected_point_drag_state.entity {
-        // Update existing no selected point drag rectangle
-        if let Ok(mut transform) = no_selected_point_drag_query.get_mut(entity) {
-            let center = Vec2::new(
-                no_selected_point_drag_rect.origin.x + no_selected_point_drag_rect.width / 2.0,
-                no_selected_point_drag_rect.origin.y + no_selected_point_drag_rect.height / 2.0,
-            );
-            transform.translation = center.extend(0.0);
-            transform.scale = Vec2::new(
-                no_selected_point_drag_rect.width,
-                no_selected_point_drag_rect.height,
-            )
-            .extend(1.0);
-        }
-    } else {
-        // Create new no selected point drag rectangle
-        let background_color = drag_selection_config
-            .drag_color
-            .with_a(drag_selection_config.background_alpha);
-        let center = Vec2::new(
-            no_selected_point_drag_rect.origin.x + no_selected_point_drag_rect.width / 2.0,
-            no_selected_point_drag_rect.origin.y + no_selected_point_drag_rect.height / 2.0,
-        );
-        let size = Vec2::new(
-            no_selected_point_drag_rect.width,
-            no_selected_point_drag_rect.height,
+    // Create or update rectangle entity
+    let rect_center = no_selected_point_drag_rect.origin
+        + Vec2::new(
+            no_selected_point_drag_rect.width / 2.0,
+            no_selected_point_drag_rect.height / 2.0,
         );
 
+    if let Some(entity) = no_selected_point_drag_state.entity {
+        // Update existing rectangle
+        if let Ok(mut transform) = no_selected_point_drag_query.get_mut(entity) {
+            transform.translation = rect_center.extend(1.0);
+            transform.scale = Vec3::new(
+                no_selected_point_drag_rect.width.abs(),
+                no_selected_point_drag_rect.height.abs(),
+                1.0,
+            );
+        }
+    } else {
+        // Create new rectangle
         let entity = render_simple_rectangle(
             commands,
             meshes,
             materials,
-            center,
-            size,
-            background_color,
-            0.0,
+            rect_center,
+            Vec2::new(
+                no_selected_point_drag_rect.width.abs(),
+                no_selected_point_drag_rect.height.abs(),
+            ),
+            Color::rgba(
+                drag_selection_config.drag_color.r(),
+                drag_selection_config.drag_color.g(),
+                drag_selection_config.drag_color.b(),
+                drag_selection_config.background_alpha,
+            ),
+            1.0,
         );
-
-        // Add the component marker
         commands.entity(entity).insert(NoSelectedPointDragRectangle);
         no_selected_point_drag_state.entity = Some(entity);
     }
@@ -480,51 +401,75 @@ fn render_no_selected_point_drag_wireframe(
     drag_selection_config: &DragSelectionRectangleConfig,
     time: &Time,
 ) {
-    // Calculate no selected point drag rectangle corners from rect
-    let min_x = no_selected_point_drag_rect.origin.x;
-    let max_x = no_selected_point_drag_rect.origin.x + no_selected_point_drag_rect.width;
-    let min_y = no_selected_point_drag_rect.origin.y;
-    let max_y = no_selected_point_drag_rect.origin.y + no_selected_point_drag_rect.height;
+    let color = Color::rgba(
+        drag_selection_config.drag_color.r(),
+        drag_selection_config.drag_color.g(),
+        drag_selection_config.drag_color.b(),
+        drag_selection_config.wireframe_alpha,
+    );
 
-    let top_left = Vec2::new(min_x, max_y);
-    let top_right = Vec2::new(max_x, max_y);
-    let bottom_right = Vec2::new(max_x, min_y);
-    let bottom_left = Vec2::new(min_x, min_y);
+    // Calculate rectangle corners
+    let min = no_selected_point_drag_rect.origin;
+    let max = no_selected_point_drag_rect.origin
+        + Vec2::new(
+            no_selected_point_drag_rect.width,
+            no_selected_point_drag_rect.height,
+        );
 
-    // Animation parameters for no selected point drag rectangle border
-    let pattern_length = DASH_LENGTH + GAP_LENGTH;
-    let time_offset = (time.elapsed_seconds() * ANIMATION_SPEED) % pattern_length;
-    let selection_color = drag_selection_config
-        .drag_color
-        .with_a(drag_selection_config.wireframe_alpha);
+    // Draw animated dashed lines for each edge
+    let elapsed = time.elapsed_seconds();
+    let dash_offset = (elapsed * ANIMATION_SPEED) % (DASH_LENGTH + GAP_LENGTH);
 
-    // Function to draw dashed line between two points
-    let draw_dashed_line = |gizmos: &mut Gizmos, start: Vec2, end: Vec2, offset: f32| {
-        let direction = end - start;
-        let distance = direction.length();
+    // Top edge
+    draw_dashed_line(
+        gizmos,
+        Vec2::new(min.x, max.y),
+        Vec2::new(max.x, max.y),
+        color,
+        dash_offset,
+    );
+    // Right edge
+    draw_dashed_line(
+        gizmos,
+        Vec2::new(max.x, max.y),
+        Vec2::new(max.x, min.y),
+        color,
+        dash_offset,
+    );
+    // Bottom edge
+    draw_dashed_line(
+        gizmos,
+        Vec2::new(max.x, min.y),
+        Vec2::new(min.x, min.y),
+        color,
+        dash_offset,
+    );
+    // Left edge
+    draw_dashed_line(
+        gizmos,
+        Vec2::new(min.x, min.y),
+        Vec2::new(min.x, max.y),
+        color,
+        dash_offset,
+    );
+}
 
-        if distance > 0.0 {
-            let normalized_direction = direction / distance;
-            let mut current_distance = -offset;
+fn draw_dashed_line(gizmos: &mut Gizmos, start: Vec2, end: Vec2, color: Color, dash_offset: f32) {
+    let line_vec = end - start;
+    let line_length = line_vec.length();
+    let line_dir = line_vec.normalize();
 
-            while current_distance < distance {
-                let dash_start = current_distance.max(0.0);
-                let dash_end = (current_distance + DASH_LENGTH).min(distance);
+    let mut current_pos = -dash_offset;
+    while current_pos < line_length {
+        let dash_start = (current_pos).max(0.0);
+        let dash_end = (current_pos + DASH_LENGTH).min(line_length);
 
-                if dash_start < dash_end {
-                    let start_pos = start + normalized_direction * dash_start;
-                    let end_pos = start + normalized_direction * dash_end;
-                    gizmos.line_2d(start_pos, end_pos, selection_color);
-                }
-
-                current_distance += pattern_length;
-            }
+        if dash_start < line_length && dash_end > 0.0 {
+            let start_point = start + line_dir * dash_start;
+            let end_point = start + line_dir * dash_end;
+            gizmos.line_2d(start_point, end_point, color);
         }
-    };
 
-    // Draw animated dashed no selected point drag rectangle border
-    draw_dashed_line(gizmos, top_left, top_right, time_offset);
-    draw_dashed_line(gizmos, top_right, bottom_right, time_offset);
-    draw_dashed_line(gizmos, bottom_right, bottom_left, time_offset);
-    draw_dashed_line(gizmos, bottom_left, top_left, time_offset);
+        current_pos += DASH_LENGTH + GAP_LENGTH;
+    }
 }
