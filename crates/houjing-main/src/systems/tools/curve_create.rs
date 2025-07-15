@@ -1,7 +1,7 @@
 use super::common::point_finding::find_or_create_point_for_snapping;
 use super::cursor::*;
 use super::tool::{Tool, ToolState};
-use crate::component::curve::{BezierCurve, Point, get_position};
+use crate::component::curve::{BezierCurve, Point};
 use crate::rendering::render_simple_circle;
 use crate::{EditSet, ShowSet};
 use bevy::prelude::*;
@@ -97,8 +97,14 @@ fn handle_curve_creation(
     );
 
     // Get the position of the point
-    let target_pos =
-        get_position(point_entity, &point_query).unwrap_or(cursor_state.cursor_position);
+    // let target_pos =
+    //     get_position(point_entity, &point_query).unwrap_or(cursor_state.cursor_position);
+
+    let target_pos = point_query
+        .get(point_entity)
+        .ok()
+        .map(|(_, point)| point.position())
+        .unwrap_or(cursor_state.cursor_position);
 
     // Check if this is the same point as the last one
     if let Some(last_point_entity) = curve_creation_state.last_point_entity {

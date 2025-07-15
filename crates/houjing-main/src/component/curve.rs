@@ -3,11 +3,6 @@ use bevy::prelude::*;
 use bevy::sprite::{MaterialMesh2dBundle, Mesh2dHandle};
 use houjing_bezier::evaluate_bezier_curve_segment;
 
-// Default curve rendering configuration constants
-const DEFAULT_CURVE_COLOR: Color = Color::WHITE;
-const DEFAULT_CURVE_SEGMENTS: u32 = 50;
-const DEFAULT_CURVE_Z_LAYER: f32 = 0.0;
-
 /// Component representing a control point position
 /// Points are now separate entities that can be shared between curves
 #[derive(Component, Debug, Clone, Copy)]
@@ -25,14 +20,6 @@ impl Point {
     pub fn set_position(&mut self, position: Vec2) {
         self.0 = position;
     }
-}
-
-/// Get the position of a point entity
-pub fn get_position(point_entity: Entity, point_query: &Query<(Entity, &Point)>) -> Option<Vec2> {
-    point_query
-        .get(point_entity)
-        .ok()
-        .map(|(_, point)| point.position())
 }
 
 #[derive(Component)]
@@ -77,6 +64,11 @@ pub fn find_curve_containing_point(
     }
     None
 }
+
+// Default curve rendering configuration constants
+const DEFAULT_CURVE_COLOR: Color = Color::WHITE;
+const DEFAULT_CURVE_SEGMENTS: u32 = 50;
+const DEFAULT_CURVE_Z_LAYER: f32 = 0.0;
 
 #[derive(Resource)]
 pub struct CurveRenderingConfig {
