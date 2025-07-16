@@ -240,4 +240,157 @@ mod tests {
         let point = app.world.get::<Point>(point2).unwrap();
         assert_eq!(point.position(), Vec2::new(60.0, 110.0));
     }
+
+    #[test]
+    fn test_split_merge_roundtrip_integration() {
+        use houjing_bezier::{merge_split_bezier_curves, split_bezier_curve_segment_at_t};
+
+        // Test the complete split-merge workflow with actual Bevy entities
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+
+        // Create original cubic curve control points
+        let original_points = vec![
+            Vec2::new(0.0, 0.0),
+            Vec2::new(1.0, 3.0),
+            Vec2::new(3.0, 1.0),
+            Vec2::new(4.0, 2.0),
+        ];
+
+        // Spawn point entities
+        let point_entities: Vec<Entity> = original_points
+            .iter()
+            .map(|&pos| app.world.spawn(Point::new(pos)).id())
+            .collect();
+
+        // Create original curve
+        let original_curve_entity = app
+            .world
+            .spawn(BezierCurve::new(point_entities.clone()))
+            .id();
+
+        // Get the point entities from the curve first
+        let point_entities = {
+            let original_curve = app.world.get::<BezierCurve>(original_curve_entity).unwrap();
+            original_curve.point_entities.clone()
+        };
+
+        // Manually resolve points for testing
+        let mut resolved_points = Vec::new();
+        for &point_entity in &point_entities {
+            let point = app.world.get::<Point>(point_entity).unwrap();
+            resolved_points.push(point.position());
+        }
+
+        // Verify the resolved points match our original points
+        assert_eq!(resolved_points.len(), 4);
+        for (i, &original_point) in original_points.iter().enumerate() {
+            assert_eq!(resolved_points[i], original_point);
+        }
+
+        // Split the curve mathematically at t=0.5
+        let (left_points, right_points) = split_bezier_curve_segment_at_t(&resolved_points, 0.5);
+
+        // Verify merge can reconstruct the original
+        let merged_points = merge_split_bezier_curves(&left_points, &right_points);
+        assert!(merged_points.is_some());
+        let merged_points = merged_points.unwrap();
+
+        // Verify lossless roundtrip
+        assert_eq!(merged_points.len(), original_points.len());
+        for (i, &original_point) in original_points.iter().enumerate() {
+            let diff = (merged_points[i] - original_point).length();
+            assert!(
+                diff < 1e-3,
+                "Point {} differs by {}: original={:?}, merged={:?}",
+                i,
+                diff,
+                original_point,
+                merged_points[i]
+            );
+        }
+
+        // Test curve evaluation at multiple points to ensure mathematical equivalence
+        for &t in &[0.0, 0.25, 0.5, 0.75, 1.0] {
+            let original_eval = BezierCurve::evaluate_bezier(&original_points, t);
+            let merged_eval = BezierCurve::evaluate_bezier(&merged_points, t);
+
+            let diff = (original_eval - merged_eval).length();
+            assert!(
+                diff < 1e-3,
+                "Evaluation at t={} differs by {}: original={:?}, merged={:?}",
+                t,
+                diff,
+                original_eval,
+                merged_eval
+            );
+        }
+    }
+
+    #[test]
+    fn test_split_merge_different_curve_types() {
+        use houjing_bezier::{merge_split_bezier_curves, split_bezier_curve_segment_at_t};
+
+        // Test different curve types
+        let test_cases = vec![
+            // Linear curve
+            ("Linear", vec![Vec2::new(0.0, 0.0), Vec2::new(5.0, 3.0)]),
+            // Quadratic curve
+            (
+                "Quadratic",
+                vec![
+                    Vec2::new(0.0, 0.0),
+                    Vec2::new(2.0, 4.0),
+                    Vec2::new(4.0, 0.0),
+                ],
+            ),
+            // Cubic curve
+            (
+                "Cubic",
+                vec![
+                    Vec2::new(0.0, 0.0),
+                    Vec2::new(1.0, 3.0),
+                    Vec2::new(3.0, 1.0),
+                    Vec2::new(4.0, 2.0),
+                ],
+            ),
+        ];
+
+        for (curve_type, original_points) in test_cases {
+            // Split and merge at t=0.5
+            let (left_points, right_points) =
+                split_bezier_curve_segment_at_t(&original_points, 0.5);
+            let merged_points = merge_split_bezier_curves(&left_points, &right_points);
+
+            assert!(
+                merged_points.is_some(),
+                "{} curve merge should succeed",
+                curve_type
+            );
+            let merged_points = merged_points.unwrap();
+
+            // Verify roundtrip accuracy
+            assert_eq!(
+                merged_points.len(),
+                original_points.len(),
+                "{} curve point count mismatch",
+                curve_type
+            );
+
+            for (i, (&original, &merged)) in
+                original_points.iter().zip(merged_points.iter()).enumerate()
+            {
+                let diff = (original - merged).length();
+                assert!(
+                    diff < 1e-3,
+                    "{} curve point {} differs by {}: {:?} vs {:?}",
+                    curve_type,
+                    i,
+                    diff,
+                    original,
+                    merged
+                );
+            }
+        }
+    }
 }

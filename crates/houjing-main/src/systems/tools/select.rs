@@ -73,9 +73,16 @@ fn handle_point_selection(
     point_query: Query<(Entity, &Point)>,
     selected_query: Query<Entity, With<SelectedControlPoint>>,
 ) {
-    // Check if tool is active, reset state if not
-    if !tool_state.is_currently_using_tool(Tool::Select) {
+    // Check if tool is active, reset state if not (but allow Merge tool to use selection)
+    if !tool_state.is_currently_using_tool(Tool::Select)
+        && !tool_state.is_currently_using_tool(Tool::Merge)
+    {
         selection_state.reset(&mut commands, &selected_query);
+        return;
+    }
+
+    // Only handle input when in Select tool
+    if !tool_state.is_currently_using_tool(Tool::Select) {
         return;
     }
 
