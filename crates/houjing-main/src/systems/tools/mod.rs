@@ -3,6 +3,7 @@ mod cursor;
 mod curve_create;
 mod drag;
 mod hand;
+mod merge;
 mod nudge;
 mod select;
 mod split;
@@ -14,6 +15,7 @@ use cursor::CursorPlugin;
 use curve_create::CurveCreationPlugin;
 use drag::DragPlugin;
 use hand::HandPlugin;
+use merge::MergePlugin;
 use nudge::NudgePlugin;
 use select::SelectionPlugin;
 use split::SplitPlugin;
@@ -31,5 +33,6 @@ pub(crate) fn add_tools_plugins(app: &mut App) {
         CurveCreationPlugin,
         HandPlugin,
         ZoomPlugin,
+        MergePlugin,
     ));
 }

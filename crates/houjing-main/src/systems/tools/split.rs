@@ -179,8 +179,12 @@ fn handle_split_action(
                 right_point_entities.push(original_end);
 
                 // Create new curve entities
-                commands.spawn(BezierCurve::new(left_point_entities));
-                commands.spawn(BezierCurve::new(right_point_entities));
+                let left_curve_entity = commands
+                    .spawn(BezierCurve::new(left_point_entities.clone()))
+                    .id();
+                let right_curve_entity = commands
+                    .spawn(BezierCurve::new(right_point_entities.clone()))
+                    .id();
 
                 // Delete the original curve
                 commands.entity(preview.curve_entity).despawn();
@@ -192,6 +196,14 @@ fn handle_split_action(
                         commands.entity(point_entity).despawn();
                     }
                 }
+
+                // now debug show all the point entity id and curve entity id after the split
+                println!(
+                    "After split, left curve {left_curve_entity:?} points: {left_point_entities:?}"
+                );
+                println!(
+                    "After split, right curve {right_curve_entity:?} points: {right_point_entities:?}"
+                );
             }
         }
     }

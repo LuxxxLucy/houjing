@@ -75,7 +75,10 @@ fn handle_point_selection(
 ) {
     // Check if tool is active, reset state if not
     if !tool_state.is_currently_using_tool(Tool::Select) {
-        selection_state.reset(&mut commands, &selected_query);
+        // merge tool needs selection, so we don't reset the selection state
+        if !tool_state.is_currently_using_tool(Tool::Merge) {
+            selection_state.reset(&mut commands, &selected_query);
+        }
         return;
     }
 
