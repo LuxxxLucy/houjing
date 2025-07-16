@@ -2,11 +2,12 @@ use super::common::selected::{SelectedControlPoint, move_selected_points};
 use super::cursor::{CursorState, CursorVisualizationConfig};
 use super::select::SelectionToolState;
 use super::tool::{Tool, ToolState};
-use crate::component::curve::Point;
+use crate::component::curve::{BezierCurve, Point, find_curve_containing_point};
 use crate::rendering::{render_dashed_line, render_simple_rectangle};
 use crate::{InputSet, ShowSet};
 use bevy::prelude::*;
 use bevy::sprite::ColorMaterial;
+use log::debug;
 
 // Animation parameters for drag selection wireframe
 const DASH_LENGTH: f32 = 6.0;
@@ -82,7 +83,6 @@ pub struct DragToolState {
 }
 
 impl DragToolState {
-    #[allow(dead_code)]
     pub fn reset(&mut self, commands: &mut Commands) {
         self.rectangle.reset(commands);
         self.selected_points.reset(commands);
@@ -133,6 +133,23 @@ pub struct DragRect {
     pub origin: Vec2,
     pub width: f32,
     pub height: f32,
+}
+
+impl DragRect {
+    pub fn bounds(&self) -> (Vec2, Vec2) {
+        let min_x = self.origin.x.min(self.origin.x + self.width);
+        let max_x = self.origin.x.max(self.origin.x + self.width);
+        let min_y = self.origin.y.min(self.origin.y + self.height);
+        let max_y = self.origin.y.max(self.origin.y + self.height);
+
+        (Vec2::new(min_x, min_y), Vec2::new(max_x, max_y))
+    }
+
+    /// Check if a point is within this rectangle
+    pub fn contains_point(&self, point: Vec2) -> bool {
+        let (min, max) = self.bounds();
+        point.x >= min.x && point.x <= max.x && point.y >= min.y && point.y <= max.y
+    }
 }
 
 #[derive(Component)]
@@ -218,12 +235,56 @@ fn handle_selected_point_drag_state(
     }
 }
 
+/// Find all points within the given rectangle and update selection state
+fn select_points_in_rectangle(
+    rect: DragRect,
+    commands: &mut Commands,
+    selection_state: &mut SelectionToolState,
+    curve_query: &Query<(Entity, &BezierCurve)>,
+    point_query: &Query<(Entity, &Point)>,
+    selected_query: &Query<Entity, With<SelectedControlPoint>>,
+) {
+    // Clear existing selections
+    selection_state.reset(commands, selected_query);
+
+    // Find all points within the rectangle
+    for (point_entity, point) in point_query.iter() {
+        if rect.contains_point(point.position()) {
+            // Check if this point is part of a curve
+            if let Some((curve_entity, point_index)) =
+                find_curve_containing_point(point_entity, curve_query)
+            {
+                let selected_point = SelectedControlPoint {
+                    curve_entity,
+                    point_index,
+                    point_entity,
+                };
+
+                // Spawn entity for other systems to query
+                commands.spawn(selected_point);
+
+                // Add to our state
+                selection_state.selected_points.push(selected_point);
+            }
+        }
+    }
+
+    debug!(
+        "Selected {} points in rectangle",
+        selection_state.selected_points.len()
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
 fn handle_no_selected_point_drag_state(
     cursor_state: Res<CursorState>,
-    selection_state: Res<SelectionToolState>,
+    mut selection_state: ResMut<SelectionToolState>,
     mut drag_state: ResMut<DragToolState>,
     tool_state: Res<ToolState>,
     mut commands: Commands,
+    curve_query: Query<(Entity, &BezierCurve)>,
+    point_query: Query<(Entity, &Point)>,
+    selected_query: Query<Entity, With<SelectedControlPoint>>,
 ) {
     // Only handle rectangle drag when no points are selected and using select tool
     if !tool_state.is_currently_using_tool(Tool::Select)
@@ -249,7 +310,17 @@ fn handle_no_selected_point_drag_state(
         }
     } else if cursor_state.mouse_just_released && drag_state.rectangle.rect.is_some() {
         // End rectangle selection when mouse is released
-        // TODO: Implement point selection within rectangle
+        if let Some(rect) = drag_state.rectangle.rect {
+            // Select all points within the rectangle
+            select_points_in_rectangle(
+                rect,
+                &mut commands,
+                &mut selection_state,
+                &curve_query,
+                &point_query,
+                &selected_query,
+            );
+        }
         drag_state.rectangle.reset(&mut commands);
     }
 }
