@@ -76,10 +76,18 @@ fn handle_curve_creation(
     tool_state: Res<ToolState>,
     cursor_state: Res<CursorState>,
     config: Res<CurveCreationConfig>,
+    keyboard: Res<ButtonInput<KeyCode>>,
     point_query: Query<(Entity, &Point)>,
 ) {
     // Check if tool is active, reset state if not
     if !tool_state.is_currently_using_tool(Tool::CreateCurve) {
+        curve_creation_state.reset(&mut commands);
+        return;
+    }
+
+    // Handle ESC key to cancel current curve creation
+    if keyboard.just_pressed(KeyCode::Escape) {
+        debug!("ESC pressed - canceling current curve creation");
         curve_creation_state.reset(&mut commands);
         return;
     }
@@ -97,9 +105,6 @@ fn handle_curve_creation(
     );
 
     // Get the position of the point
-    // let target_pos =
-    //     get_position(point_entity, &point_query).unwrap_or(cursor_state.cursor_position);
-
     let target_pos = point_query
         .get(point_entity)
         .ok()
@@ -159,9 +164,18 @@ fn handle_curve_creation(
                     BezierCurve::new(curve_creation_state.curve_creation_point_entities.clone());
                 commands.spawn(curve);
 
-                // Reset state for next curve
+                // For continuous curve creation: keep the last point as the first point of the next curve
+                let last_point = curve_creation_state.curve_creation_point_entities[3];
                 curve_creation_state.reset(&mut commands);
-                debug!("Created cubic Bézier curve! State reset to Idle. Ready for next curve.")
+                curve_creation_state
+                    .curve_creation_point_entities
+                    .push(last_point);
+                curve_creation_state.last_point_entity = Some(last_point);
+                curve_creation_state.curve_creation_state = CurveCreationState::CollectingPoints;
+
+                debug!(
+                    "Created cubic Bézier curve! Starting next curve with last point {last_point:?} as first point (1/4)"
+                );
             }
         }
     }
