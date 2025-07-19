@@ -66,7 +66,10 @@ impl Plugin for SplitPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SplitToolState>()
             .init_resource::<SplitConfig>()
-            .add_systems(Update, (update_split_preview,).in_set(InputSet))
+            .add_systems(
+                Update,
+                (update_split_preview, update_split_cursor).in_set(InputSet),
+            )
             .add_systems(Update, (handle_split_action,).in_set(EditSet))
             .add_systems(Update, (render_split_preview,).in_set(ShowSet));
     }
@@ -199,10 +202,10 @@ fn handle_split_action(
 
                 // now debug show all the point entity id and curve entity id after the split
                 println!(
-                    "After split, left curve {left_curve_entity:?} points: {left_point_entities:?}"
+                    "After split, left curve {left_curve_entity:?} points: {left_point_entities:?}, positions: {left_points:?}"
                 );
                 println!(
-                    "After split, right curve {right_curve_entity:?} points: {right_point_entities:?}"
+                    "After split, right curve {right_curve_entity:?} points: {right_point_entities:?}, positions: {right_points:?}"
                 );
             }
         }
@@ -252,5 +255,19 @@ fn render_split_preview(
             &dash_config,
             &time,
         );
+    }
+}
+
+fn update_split_cursor(tool_state: Res<ToolState>, mut windows: Query<&mut Window>) {
+    if let Ok(mut window) = windows.get_single_mut() {
+        if tool_state.is_currently_using_tool(Tool::Split) {
+            // Use crosshair cursor for split tool (closest to scissor precision)
+            window.cursor.icon = CursorIcon::Crosshair;
+        } else {
+            // Reset to default cursor for other tools (if not overridden by other tools)
+            if window.cursor.icon == CursorIcon::Crosshair {
+                window.cursor.icon = CursorIcon::Default;
+            }
+        }
     }
 }
