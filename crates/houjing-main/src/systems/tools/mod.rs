@@ -1,6 +1,7 @@
 mod common;
 mod cursor;
 mod curve_create;
+mod delete;
 mod drag;
 mod hand;
 mod merge;
@@ -13,6 +14,7 @@ mod zoom;
 use bevy::prelude::*;
 use cursor::CursorPlugin;
 use curve_create::CurveCreationPlugin;
+use delete::DeletePlugin;
 use drag::DragPlugin;
 use hand::HandPlugin;
 use merge::MergePlugin;
@@ -34,5 +36,6 @@ pub(crate) fn add_tools_plugins(app: &mut App) {
         HandPlugin,
         ZoomPlugin,
         MergePlugin,
+        DeletePlugin,
     ));
 }

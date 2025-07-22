@@ -245,7 +245,8 @@ fn select_points_in_rectangle(
     selected_query: &Query<Entity, With<SelectedControlPoint>>,
 ) {
     // Clear existing selections
-    selection_state.reset(commands, selected_query);
+    SelectionToolState::clear_selected_points(commands, selected_query);
+    selection_state.reset(commands);
 
     // Find all points within the rectangle
     for (point_entity, point) in point_query.iter() {

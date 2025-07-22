@@ -165,6 +165,7 @@ fn handle_merge_action(
         create_merged_curves(merged_curves, &curve_entities, &curve_query, &mut commands);
 
     // Clear selection after successful merge
-    selection_state.reset(&mut commands, &selected_query);
+    SelectionToolState::clear_selected_points(&mut commands, &selected_query);
+    selection_state.reset(&mut commands);
     debug!("Merge operation completed successfully");
 }

@@ -13,8 +13,11 @@ pub struct SelectionToolState {
 }
 
 impl SelectionToolState {
-    pub fn reset(
-        &mut self,
+    pub fn reset(&mut self, _commands: &mut Commands) {
+        self.selected_points.clear();
+    }
+
+    pub fn clear_selected_points(
         commands: &mut Commands,
         selected_query: &Query<Entity, With<SelectedControlPoint>>,
     ) {
@@ -22,7 +25,6 @@ impl SelectionToolState {
         for entity in selected_query.iter() {
             commands.entity(entity).despawn();
         }
-        self.selected_points.clear();
     }
 }
 
@@ -77,7 +79,8 @@ fn handle_point_selection(
     if !tool_state.is_currently_using_tool(Tool::Select) {
         // merge tool needs selection, so we don't reset the selection state
         if !tool_state.is_currently_using_tool(Tool::Merge) {
-            selection_state.reset(&mut commands, &selected_query);
+            SelectionToolState::clear_selected_points(&mut commands, &selected_query);
+            selection_state.reset(&mut commands);
         }
         return;
     }
@@ -87,7 +90,8 @@ fn handle_point_selection(
     }
 
     // Clear existing selections
-    selection_state.reset(&mut commands, &selected_query);
+    SelectionToolState::clear_selected_points(&mut commands, &selected_query);
+    selection_state.reset(&mut commands);
 
     // Find closest point using shared utility
     if let Some(point_entity) = find_closest_point(
