@@ -189,8 +189,8 @@ fn merge_split_cubic_curves(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::evaluation::evaluate_bezier_curve_segment;
-    use crate::split::split_bezier_curve_segment_at_t;
+    use crate::modules::geometry::evaluation::evaluate_bezier_curve_segment;
+    use crate::modules::geometry::split::split_bezier_curve_segment_at_t;
     use approx::assert_abs_diff_eq;
     use bevy_math::Vec2;
 

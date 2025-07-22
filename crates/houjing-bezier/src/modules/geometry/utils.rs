@@ -1,4 +1,4 @@
-use crate::evaluation::{
+use crate::modules::geometry::evaluation::{
     calculate_tangent_at_t_on_bezier_curve_segment, evaluate_bezier_curve_segment,
 };
 use bevy_math::Vec2;
