@@ -6,6 +6,11 @@
 //! - Merging split curves back together (lossless for arbitrary t values)
 //! - Utility functions for finding closest points and perpendiculars
 
+pub mod constants;
+pub mod data;
+pub mod error;
+pub mod modules;
+
 pub mod evaluation;
 pub mod merge;
 pub mod split;
