@@ -150,18 +150,12 @@ impl BezierSegment {
         }
     }
 
-    /// Sample a point at parameter t (0 <= t <= 1)
-    /// This is an alias for point_at to maintain consistency with sample_points
-    pub fn sample_point_at(&self, t: f64) -> Point {
-        self.point_at(t)
-    }
-
     /// Generate a series of points along the bezier curve
     pub fn sample_points(&self, num_points: usize) -> Vec<Point> {
         (0..num_points)
             .map(|i| {
                 let t = i as f64 / (num_points - 1) as f64;
-                self.sample_point_at(t)
+                self.point_at(t)
             })
             .collect()
     }
