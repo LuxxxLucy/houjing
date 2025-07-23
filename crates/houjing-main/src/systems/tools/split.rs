@@ -107,7 +107,7 @@ fn update_split_preview(
             let bezier_points = compat::bevy_vec2_slice_to_hj_bezier_point_vec(&control_points);
             let t = find_closest_t_on_bezier_curve_segment(
                 &bezier_points,
-                compat::bevy_vec2_to_hj_bezier_point(cursor_pos),
+                &compat::bevy_vec2_to_hj_bezier_point(cursor_pos),
             );
             let closest_point = compat::hj_bezier_point_to_bevy_vec2(
                 evaluate_bezier_curve_segment(&bezier_points, t),
@@ -118,7 +118,7 @@ fn update_split_preview(
                 closest_distance = distance;
                 let (line_start, line_end) = get_perpendicular_line_to_bezier_curve_segment(
                     &bezier_points,
-                    compat::bevy_vec2_to_hj_bezier_point(cursor_pos),
+                    &compat::bevy_vec2_to_hj_bezier_point(cursor_pos),
                     config.perpendicular_line_length as f64,
                 );
 

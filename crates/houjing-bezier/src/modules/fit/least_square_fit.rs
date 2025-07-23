@@ -68,7 +68,7 @@ mod tests {
         let original = cubic!([(0.0, 0.0), (1.0, 2.0), (2.0, 2.0), (3.0, 0.0)]);
 
         // Sample points from the curve
-        let samples = original.sample_points(20);
+        let samples = original.sample_n_uniform_points(20);
 
         // Fit a curve to the sampled points
         let fitted = fit_cubic_bezier_default(&samples).unwrap();
@@ -103,7 +103,7 @@ mod tests {
         let segment = cubic!([(50.0, 200.0), (100.0, 50.0), (200.0, 50.0), (250.0, 200.0)]);
 
         // Sample points along the curve
-        let samples = segment.sample_points(4);
+        let samples = segment.sample_n_uniform_points(4);
 
         // Using the default chord length parameterization
         let fitted_segment1 = fit_cubic_bezier_default(&samples).unwrap();
@@ -138,7 +138,7 @@ mod tests {
         let original = cubic!([(50.0, 200.0), (100.0, 50.0), (200.0, 50.0), (250.0, 200.0)]);
 
         // Sample the same number of points as the demo (4)
-        let samples = original.sample_points(4);
+        let samples = original.sample_n_uniform_points(4);
 
         // Fit using the default chord length parameterization
         let fitted = fit_cubic_bezier_default(&samples).unwrap();
@@ -172,7 +172,7 @@ mod tests {
         let original = cubic!([(0.0, 0.0), (1.0, 2.0), (2.0, 2.0), (3.0, 0.0)]);
 
         // Sample points from the curve
-        let samples = original.sample_points(10);
+        let samples = original.sample_n_uniform_points(10);
 
         // Standard chord length parameterization
         let t_values_chord = estimate_t_values_with_heuristic(&samples, THeuristic::default());

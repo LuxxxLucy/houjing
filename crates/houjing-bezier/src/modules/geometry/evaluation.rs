@@ -1,3 +1,4 @@
+use crate::data::BezierSegment;
 use crate::data::Point;
 
 /// Evaluate a Bezier curve segment at parameter t
@@ -91,6 +92,41 @@ pub fn calculate_tangent_at_t_on_bezier_curve_segment(control_points: &[Point], 
             "Unsupported number of control points: {}",
             control_points.len()
         ),
+    }
+}
+
+impl BezierSegment {
+    /// Get a point on the bezier curve at parameter t (0 <= t <= 1)
+    pub fn point_at(&self, t: f64) -> Point {
+        match self {
+            Self::Line { points } => points[0].lerp(points[1], t),
+            Self::Cubic { points } => evaluate_cubic_bezier_curve_segment(points, t),
+            Self::Quadratic { points } => evaluate_quadratic_bezier_curve_segment(points, t),
+            Self::Arc {
+                start: _,
+                end: _,
+                rx: _,
+                ry: _,
+                angle: _,
+                large_arc: _,
+                sweep: _,
+            } => {
+                panic!("Arc point_at not implemented yet - needs proper elliptical arc parameterization")
+            }
+        }
+    }
+
+    /// Sample points at specific t values
+    pub fn point_at_vec(&self, t_values: &[f64]) -> Vec<Point> {
+        t_values.iter().map(|&t| self.point_at(t)).collect()
+    }
+
+    /// Generate a series of points along the bezier curve
+    pub fn sample_n_uniform_points(&self, num_points: usize) -> Vec<Point> {
+        let ts: Vec<f64> = (0..num_points)
+            .map(|i| i as f64 / (num_points - 1) as f64)
+            .collect();
+        self.point_at_vec(&ts)
     }
 }
 

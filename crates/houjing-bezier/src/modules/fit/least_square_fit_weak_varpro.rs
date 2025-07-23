@@ -244,7 +244,7 @@ mod tests {
     #[test]
     fn test_gradient_fit() {
         let original = cubic!([(0.0, 0.0), (1.0, 2.0), (3.0, 1.0), (4.0, 3.0)]);
-        let samples = original.sample_points(20);
+        let samples = original.sample_n_uniform_points(20);
 
         let fitted = fit_cubic_bezier_weak_varpro(&samples, 10, 0.001, None).unwrap();
 
@@ -257,7 +257,7 @@ mod tests {
     #[test]
     fn test_gradient_fit_with_params() {
         let original = cubic!([(0.0, 0.0), (1.0, 2.0), (3.0, 1.0), (4.0, 3.0)]);
-        let samples = original.sample_points(20);
+        let samples = original.sample_n_uniform_points(20);
 
         let params = GradientParams {
             min_step_size: 1e-8,

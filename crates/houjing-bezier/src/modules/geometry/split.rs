@@ -1,3 +1,4 @@
+use crate::data::BezierSegment;
 use crate::data::Point;
 
 /// Split a Bezier curve segment at parameter t using De Casteljau's algorithm
@@ -100,10 +101,25 @@ pub fn split_cubic_bezier_curve_segment(
     (left, right)
 }
 
+impl BezierSegment {
+    pub fn split_at(&self, t: f64) -> (BezierSegment, BezierSegment) {
+        match self {
+            BezierSegment::Arc { .. } => {
+                panic!("Arc split_at not implemented yet - needs proper elliptical arc splitting")
+            }
+            _ => {
+                let (left, right) = split_bezier_curve_segment_at_t(&self.points(), t);
+                (BezierSegment::new(&left), BezierSegment::new(&right))
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::data::Point;
+    use crate::{cubic, pt, quad};
 
     #[test]
     fn test_split_cubic_bezier_curve_segment() {
@@ -126,5 +142,76 @@ mod tests {
         // Both should have 4 control points
         assert_eq!(left.len(), 4);
         assert_eq!(right.len(), 4);
+    }
+
+    #[test]
+    fn test_split_at_line() {
+        let segment = crate::line!(Point::ZERO, pt!(10.0, 10.0));
+        let (left, right) = segment.split_at(0.5);
+
+        match (left, right) {
+            (
+                BezierSegment::Line {
+                    points: left_points,
+                },
+                BezierSegment::Line {
+                    points: right_points,
+                },
+            ) => {
+                assert_eq!(left_points[0], Point::ZERO);
+                assert_eq!(left_points[1], pt!(5.0, 5.0));
+                assert_eq!(right_points[0], pt!(5.0, 5.0));
+                assert_eq!(right_points[1], pt!(10.0, 10.0));
+            }
+            _ => panic!("Expected line segments"),
+        }
+    }
+
+    #[test]
+    fn test_split_at_cubic() {
+        let segment = cubic!(Point::ZERO, pt!(1.0, 1.0), pt!(2.0, 1.0), pt!(3.0, 0.0));
+        let (left, right) = segment.split_at(0.5);
+
+        match (left, right) {
+            (
+                BezierSegment::Cubic {
+                    points: left_points,
+                },
+                BezierSegment::Cubic {
+                    points: right_points,
+                },
+            ) => {
+                // Check that the split point is the same for both segments
+                assert_eq!(left_points[3], right_points[0]);
+                // Check that the original endpoints are preserved
+                assert_eq!(left_points[0], Point::ZERO);
+                assert_eq!(right_points[3], pt!(3.0, 0.0));
+            }
+            _ => panic!("Expected cubic segments"),
+        }
+    }
+
+    #[test]
+    fn test_split_at_quadratic() {
+        let segment = quad!(Point::ZERO, pt!(1.0, 1.0), pt!(2.0, 0.0));
+        let (left, right) = segment.split_at(0.5);
+
+        match (left, right) {
+            (
+                BezierSegment::Quadratic {
+                    points: left_points,
+                },
+                BezierSegment::Quadratic {
+                    points: right_points,
+                },
+            ) => {
+                // Check that the split point is the same for both segments
+                assert_eq!(left_points[2], right_points[0]);
+                // Check that the original endpoints are preserved
+                assert_eq!(left_points[0], Point::ZERO);
+                assert_eq!(right_points[2], pt!(2.0, 0.0));
+            }
+            _ => panic!("Expected quadratic segments"),
+        }
     }
 }

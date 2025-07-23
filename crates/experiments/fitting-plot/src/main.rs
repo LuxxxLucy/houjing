@@ -25,7 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let t_values = vec![0.0, 0.1, 0.15, 0.3, 0.7, 0.85, 1.0];
 
     // Sample points at the specified t values
-    let (samples, _) = original.sample_at_t_values(&t_values);
+    let samples = original.point_at_vec(&t_values);
     println!("Sampled {} points from the curve", samples.len());
 
     // Store errors for plotting

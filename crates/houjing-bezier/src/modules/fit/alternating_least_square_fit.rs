@@ -166,7 +166,7 @@ mod tests {
         let original = cubic!([(0.0, 0.0), (1.0, 2.0), (2.0, 2.0), (3.0, 0.0)]);
 
         // Sample points from the curve
-        let samples = original.sample_points(20);
+        let samples = original.sample_n_uniform_points(20);
 
         // Fit a curve to the sampled points using nearest point method
         let fitted =
@@ -185,7 +185,7 @@ mod tests {
         let original = cubic!([(0.0, 0.0), (1.0, 2.0), (2.0, 2.0), (3.0, 0.0)]);
 
         // Sample points from the curve
-        let samples = original.sample_points(20);
+        let samples = original.sample_n_uniform_points(20);
 
         // Fit a curve to the sampled points using Gauss-Newton method
         let fitted =
@@ -204,7 +204,7 @@ mod tests {
         let original = cubic!([(0.0, 0.0), (1.0, 3.0), (2.0, -1.0), (3.0, 2.0)]);
 
         // Sample points from the curve
-        let samples = original.sample_points(15);
+        let samples = original.sample_n_uniform_points(15);
 
         // Track errors over iterations
         let mut nearest_point_errors = Vec::new();

@@ -129,7 +129,7 @@ mod tests {
 
     fn create_test_curve() -> Vec<Point> {
         let segment = crate::cubic!([(50, 200), (100, 50), (200, 50), (250, 200)]);
-        let (points, _) = segment.sample_at_t_values(&TEST_T_VALUES);
+        let points = segment.point_at_vec(&TEST_T_VALUES);
         points
     }
 
