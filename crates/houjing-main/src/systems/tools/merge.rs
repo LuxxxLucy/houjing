@@ -2,6 +2,7 @@ use super::common::selected::SelectedControlPoint;
 use super::select::SelectionToolState;
 use super::tool::{Tool, ToolState};
 use crate::EditSet;
+use crate::compat;
 use crate::component::curve::{BezierCurve, Point};
 use bevy::prelude::*;
 use houjing_bezier::merge_curves_sequentially;
@@ -146,7 +147,15 @@ fn handle_merge_action(
     }
 
     // Perform the merge using the library function
-    let merged_curves = merge_curves_sequentially(curve_positions.clone());
+    let bezier_curves: Vec<Vec<houjing_bezier::Point>> = curve_positions
+        .iter()
+        .map(|curve| compat::bevy_vec2_slice_to_hj_bezier_point_vec(curve))
+        .collect();
+    let merged_bezier_curves = merge_curves_sequentially(bezier_curves);
+    let merged_curves: Vec<Vec<Vec2>> = merged_bezier_curves
+        .into_iter()
+        .map(compat::hj_bezier_point_vec_to_bevy_vec2_vec)
+        .collect();
 
     // Check if any merges actually happened
     if merged_curves.len() == curve_positions.len() {

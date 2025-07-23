@@ -72,7 +72,7 @@ impl BezierCurve {
     /// Parse a single SVG path and return both the result and bytes consumed
     pub fn parse_one_svg_path(data: &str) -> Result<(Self, usize), Box<dyn Error>> {
         let mut segments = vec![];
-        let mut current_point = pt!(0.0, 0.0);
+        let mut current_point = Point::ZERO;
         let mut start_point = current_point;
         let mut current_command = ' ';
         let mut last_was_move = false; // Track if the last command was a move

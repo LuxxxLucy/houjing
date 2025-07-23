@@ -1,7 +1,7 @@
-use bevy_math::Vec2;
+use crate::data::Point;
 
 /// Evaluate a Bezier curve segment at parameter t
-pub fn evaluate_bezier_curve_segment(control_points: &[Vec2], t: f32) -> Vec2 {
+pub fn evaluate_bezier_curve_segment(control_points: &[Point], t: f64) -> Point {
     match control_points.len() {
         2 => {
             // Linear interpolation
@@ -17,7 +17,7 @@ pub fn evaluate_bezier_curve_segment(control_points: &[Vec2], t: f32) -> Vec2 {
 }
 
 /// Evaluate a quadratic Bezier curve segment at parameter t
-pub fn evaluate_quadratic_bezier_curve_segment(control_points: &[Vec2], t: f32) -> Vec2 {
+pub fn evaluate_quadratic_bezier_curve_segment(control_points: &[Point], t: f64) -> Point {
     assert_eq!(
         control_points.len(),
         3,
@@ -36,7 +36,7 @@ pub fn evaluate_quadratic_bezier_curve_segment(control_points: &[Vec2], t: f32) 
 }
 
 /// Evaluate a cubic Bezier curve segment at parameter t
-pub fn evaluate_cubic_bezier_curve_segment(control_points: &[Vec2], t: f32) -> Vec2 {
+pub fn evaluate_cubic_bezier_curve_segment(control_points: &[Point], t: f64) -> Point {
     assert_eq!(
         control_points.len(),
         4,
@@ -58,7 +58,7 @@ pub fn evaluate_cubic_bezier_curve_segment(control_points: &[Vec2], t: f32) -> V
 }
 
 /// Calculate the tangent vector at parameter t on a Bezier curve segment
-pub fn calculate_tangent_at_t_on_bezier_curve_segment(control_points: &[Vec2], t: f32) -> Vec2 {
+pub fn calculate_tangent_at_t_on_bezier_curve_segment(control_points: &[Point], t: f64) -> Point {
     match control_points.len() {
         2 => {
             // Linear curve - constant tangent
@@ -97,39 +97,39 @@ pub fn calculate_tangent_at_t_on_bezier_curve_segment(control_points: &[Vec2], t
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy_math::Vec2;
+    use crate::data::Point;
 
     #[test]
     fn test_evaluate_linear_bezier_curve_segment() {
-        let control_points = vec![Vec2::ZERO, Vec2::new(10.0, 0.0)];
+        let control_points = vec![Point::ZERO, Point::new(10.0, 0.0)];
 
         let start = evaluate_bezier_curve_segment(&control_points, 0.0);
         let end = evaluate_bezier_curve_segment(&control_points, 1.0);
         let mid = evaluate_bezier_curve_segment(&control_points, 0.5);
 
-        assert_eq!(start, Vec2::ZERO);
-        assert_eq!(end, Vec2::new(10.0, 0.0));
-        assert_eq!(mid, Vec2::new(5.0, 0.0));
+        assert_eq!(start, Point::ZERO);
+        assert_eq!(end, Point::new(10.0, 0.0));
+        assert_eq!(mid, Point::new(5.0, 0.0));
     }
 
     #[test]
     fn test_evaluate_quadratic_bezier_curve_segment() {
-        let control_points = vec![Vec2::ZERO, Vec2::new(50.0, 100.0), Vec2::new(100.0, 0.0)];
+        let control_points = vec![Point::ZERO, Point::new(50.0, 100.0), Point::new(100.0, 0.0)];
 
         let start = evaluate_bezier_curve_segment(&control_points, 0.0);
         let end = evaluate_bezier_curve_segment(&control_points, 1.0);
         let mid = evaluate_bezier_curve_segment(&control_points, 0.5);
 
-        assert_eq!(start, Vec2::ZERO);
-        assert_eq!(end, Vec2::new(100.0, 0.0));
-        assert_eq!(mid, Vec2::new(50.0, 50.0));
+        assert_eq!(start, Point::ZERO);
+        assert_eq!(end, Point::new(100.0, 0.0));
+        assert_eq!(mid, Point::new(50.0, 50.0));
     }
 
     #[test]
     fn test_tangent_calculation() {
         // Linear case - constant tangent
-        let control_points = vec![Vec2::ZERO, Vec2::new(10.0, 5.0)];
+        let control_points = vec![Point::ZERO, Point::new(10.0, 5.0)];
         let tangent = calculate_tangent_at_t_on_bezier_curve_segment(&control_points, 0.5);
-        assert_eq!(tangent, Vec2::new(10.0, 5.0));
+        assert_eq!(tangent, Point::new(10.0, 5.0));
     }
 }

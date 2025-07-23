@@ -237,7 +237,7 @@ mod tests {
 
         // Check the points
         let points = segment.points();
-        assert_eq!(points[0], pt!(0.0, 0.0));
+        assert_eq!(points[0], Point::ZERO);
         assert_eq!(points[3], pt!(3.0, 0.0));
     }
 }

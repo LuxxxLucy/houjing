@@ -1,4 +1,5 @@
 use crate::ShowSet;
+use crate::compat;
 use bevy::prelude::*;
 use bevy::sprite::{MaterialMesh2dBundle, Mesh2dHandle};
 use houjing_bezier::evaluate_bezier_curve_segment;
@@ -47,7 +48,9 @@ impl BezierCurve {
 
     /// Evaluate a Bezier curve at parameter t given control points
     pub fn evaluate_bezier(control_points: &[Vec2], t: f32) -> Vec2 {
-        evaluate_bezier_curve_segment(control_points, t)
+        let bezier_points = compat::bevy_vec2_slice_to_hj_bezier_point_vec(control_points);
+        let result = evaluate_bezier_curve_segment(&bezier_points, t as f64);
+        compat::hj_bezier_point_to_bevy_vec2(result)
     }
 }
 

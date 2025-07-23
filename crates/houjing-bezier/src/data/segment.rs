@@ -96,11 +96,7 @@ impl BezierSegment {
             Self::Line { points } => {
                 let p1 = points[0];
                 let p2 = points[1];
-
-                let x = p1.x + t * (p2.x - p1.x);
-                let y = p1.y + t * (p2.y - p1.y);
-
-                Point::new(x, y)
+                p1.lerp(p2, t)
             }
             Self::Cubic { points } => {
                 let p1 = points[0];
@@ -111,17 +107,10 @@ impl BezierSegment {
                 let t1 = 1.0 - t;
 
                 // B(t) = (1-t)^3 * p1 + 3(1-t)^2 * t * p2 + 3(1-t) * t^2 * p3 + t^3 * p4
-                let x = t1.powi(3) * p1.x
-                    + 3.0 * t1.powi(2) * t * p2.x
-                    + 3.0 * t1 * t.powi(2) * p3.x
-                    + t.powi(3) * p4.x;
-
-                let y = t1.powi(3) * p1.y
-                    + 3.0 * t1.powi(2) * t * p2.y
-                    + 3.0 * t1 * t.powi(2) * p3.y
-                    + t.powi(3) * p4.y;
-
-                Point::new(x, y)
+                t1.powi(3) * p1
+                    + 3.0 * t1.powi(2) * t * p2
+                    + 3.0 * t1 * t.powi(2) * p3
+                    + t.powi(3) * p4
             }
             Self::Quadratic { points } => {
                 let p1 = points[0];
@@ -131,10 +120,7 @@ impl BezierSegment {
                 let t1 = 1.0 - t;
 
                 // B(t) = (1-t)^2 * p1 + 2(1-t) * t * p2 + t^2 * p3
-                let x = t1.powi(2) * p1.x + 2.0 * t1 * t * p2.x + t.powi(2) * p3.x;
-                let y = t1.powi(2) * p1.y + 2.0 * t1 * t * p2.y + t.powi(2) * p3.y;
-
-                Point::new(x, y)
+                t1.powi(2) * p1 + 2.0 * t1 * t * p2 + t.powi(2) * p3
             }
             Self::Arc {
                 start: _,
@@ -229,17 +215,17 @@ impl BezierSegment {
         match self {
             Self::Line { points } => {
                 let [p1, p2] = points;
-                let mid = Point::new(p1.x + t * (p2.x - p1.x), p1.y + t * (p2.y - p1.y));
+                let mid = p1.lerp(*p2, t);
                 (BezierSegment::line(*p1, mid), BezierSegment::line(mid, *p2))
             }
             Self::Cubic { points } => {
                 let [p1, p2, p3, p4] = points;
-                let q1 = Point::new(p1.x + t * (p2.x - p1.x), p1.y + t * (p2.y - p1.y));
-                let q2 = Point::new(p2.x + t * (p3.x - p2.x), p2.y + t * (p3.y - p2.y));
-                let q3 = Point::new(p3.x + t * (p4.x - p3.x), p3.y + t * (p4.y - p3.y));
-                let r1 = Point::new(q1.x + t * (q2.x - q1.x), q1.y + t * (q2.y - q1.y));
-                let r2 = Point::new(q2.x + t * (q3.x - q2.x), q2.y + t * (q3.y - q2.y));
-                let s = Point::new(r1.x + t * (r2.x - r1.x), r1.y + t * (r2.y - r1.y));
+                let q1 = p1.lerp(*p2, t);
+                let q2 = p2.lerp(*p3, t);
+                let q3 = p3.lerp(*p4, t);
+                let r1 = q1.lerp(q2, t);
+                let r2 = q2.lerp(q3, t);
+                let s = r1.lerp(r2, t);
                 (
                     BezierSegment::cubic(*p1, q1, r1, s),
                     BezierSegment::cubic(s, r2, q3, *p4),
@@ -247,9 +233,9 @@ impl BezierSegment {
             }
             Self::Quadratic { points } => {
                 let [p1, p2, p3] = points;
-                let q1 = Point::new(p1.x + t * (p2.x - p1.x), p1.y + t * (p2.y - p1.y));
-                let q2 = Point::new(p2.x + t * (p3.x - p2.x), p2.y + t * (p3.y - p2.y));
-                let s = Point::new(q1.x + t * (q2.x - q1.x), q1.y + t * (q2.y - q1.y));
+                let q1 = p1.lerp(*p2, t);
+                let q2 = p2.lerp(*p3, t);
+                let s = q1.lerp(q2, t);
                 (
                     BezierSegment::quadratic(*p1, q1, s),
                     BezierSegment::quadratic(s, q2, *p3),
@@ -311,23 +297,24 @@ impl fmt::Display for BezierSegment {
 #[cfg(test)]
 mod tests {
     use super::BezierSegment;
+    use crate::data::Point;
     use crate::{cubic, pt, quad};
 
     #[test]
     fn test_nearest_point_boundary_cases() {
         // Create a simple cubic bezier segment
-        let segment = cubic!(pt!(0.0, 0.0), pt!(1.0, 1.0), pt!(2.0, 1.0), pt!(3.0, 0.0));
+        let segment = cubic!(Point::ZERO, pt!(1.0, 1.0), pt!(2.0, 1.0), pt!(3.0, 0.0));
 
         // Test 1: Point exactly at start (t=0)
-        let test_point = pt!(0.0, 0.0);
-        let expected_point = pt!(0.0, 0.0);
+        let test_point = Point::ZERO;
+        let expected_point = Point::ZERO;
         let (point, t) = segment.nearest_point(&test_point);
         assert_eq!(point, expected_point);
         assert!(t.abs() < 1e-6);
 
         // Test 2: Point very close to start
         let test_point = pt!(0.01, 0.01);
-        let expected_point = pt!(0.0, 0.0);
+        let expected_point = Point::ZERO;
         let (point, t) = segment.nearest_point(&test_point);
         assert!(t < 0.1, "t value was {}", t);
         assert!(point.distance(&expected_point) < 0.1);
@@ -350,7 +337,7 @@ mod tests {
     #[test]
     fn test_nearest_point_middle_cases() {
         // Create a simple cubic bezier segment
-        let segment = cubic!(pt!(0.0, 0.0), pt!(1.0, 1.0), pt!(2.0, 1.0), pt!(3.0, 0.0));
+        let segment = cubic!(Point::ZERO, pt!(1.0, 1.0), pt!(2.0, 1.0), pt!(3.0, 0.0));
 
         // Test 1: Point at middle of curve (t=0.5)
         let middle_point = segment.point_at(0.5);
@@ -374,7 +361,7 @@ mod tests {
     #[test]
     fn test_nearest_point_complex_curve() {
         // Create a more complex cubic bezier segment
-        let segment = cubic!(pt!(0.0, 0.0), pt!(0.5, 1.0), pt!(1.5, -1.0), pt!(2.0, 0.0));
+        let segment = cubic!(Point::ZERO, pt!(0.5, 1.0), pt!(1.5, -1.0), pt!(2.0, 0.0));
 
         // Test 1: Point near a local minimum
         let test_point = pt!(1.0, 0.2);
@@ -394,7 +381,7 @@ mod tests {
 
     #[test]
     fn test_split_at_line() {
-        let segment = crate::line!(pt!(0.0, 0.0), pt!(10.0, 10.0));
+        let segment = crate::line!(Point::ZERO, pt!(10.0, 10.0));
         let (left, right) = segment.split_at(0.5);
 
         match (left, right) {
@@ -406,7 +393,7 @@ mod tests {
                     points: right_points,
                 },
             ) => {
-                assert_eq!(left_points[0], pt!(0.0, 0.0));
+                assert_eq!(left_points[0], Point::ZERO);
                 assert_eq!(left_points[1], pt!(5.0, 5.0));
                 assert_eq!(right_points[0], pt!(5.0, 5.0));
                 assert_eq!(right_points[1], pt!(10.0, 10.0));
@@ -417,7 +404,7 @@ mod tests {
 
     #[test]
     fn test_split_at_cubic() {
-        let segment = cubic!(pt!(0.0, 0.0), pt!(1.0, 1.0), pt!(2.0, 1.0), pt!(3.0, 0.0));
+        let segment = cubic!(Point::ZERO, pt!(1.0, 1.0), pt!(2.0, 1.0), pt!(3.0, 0.0));
         let (left, right) = segment.split_at(0.5);
 
         match (left, right) {
@@ -432,7 +419,7 @@ mod tests {
                 // Check that the split point is the same for both segments
                 assert_eq!(left_points[3], right_points[0]);
                 // Check that the original endpoints are preserved
-                assert_eq!(left_points[0], pt!(0.0, 0.0));
+                assert_eq!(left_points[0], Point::ZERO);
                 assert_eq!(right_points[3], pt!(3.0, 0.0));
             }
             _ => panic!("Expected cubic segments"),
@@ -441,7 +428,7 @@ mod tests {
 
     #[test]
     fn test_split_at_quadratic() {
-        let segment = quad!(pt!(0.0, 0.0), pt!(1.0, 1.0), pt!(2.0, 0.0));
+        let segment = quad!(Point::ZERO, pt!(1.0, 1.0), pt!(2.0, 0.0));
         let (left, right) = segment.split_at(0.5);
 
         match (left, right) {
@@ -456,7 +443,7 @@ mod tests {
                 // Check that the split point is the same for both segments
                 assert_eq!(left_points[2], right_points[0]);
                 // Check that the original endpoints are preserved
-                assert_eq!(left_points[0], pt!(0.0, 0.0));
+                assert_eq!(left_points[0], Point::ZERO);
                 assert_eq!(right_points[2], pt!(2.0, 0.0));
             }
             _ => panic!("Expected quadratic segments"),

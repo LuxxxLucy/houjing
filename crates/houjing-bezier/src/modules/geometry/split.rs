@@ -1,8 +1,11 @@
-use bevy_math::Vec2;
+use crate::data::Point;
 
 /// Split a Bezier curve segment at parameter t using De Casteljau's algorithm
 /// Returns (left_curve_segment_points, right_curve_segment_points)
-pub fn split_bezier_curve_segment_at_t(control_points: &[Vec2], t: f32) -> (Vec<Vec2>, Vec<Vec2>) {
+pub fn split_bezier_curve_segment_at_t(
+    control_points: &[Point],
+    t: f64,
+) -> (Vec<Point>, Vec<Point>) {
     match control_points.len() {
         2 => split_linear_bezier_curve_segment(control_points, t),
         3 => split_quadratic_bezier_curve_segment(control_points, t),
@@ -16,9 +19,9 @@ pub fn split_bezier_curve_segment_at_t(control_points: &[Vec2], t: f32) -> (Vec<
 
 /// Split a linear Bezier curve segment (line) at parameter t
 pub fn split_linear_bezier_curve_segment(
-    control_points: &[Vec2],
-    t: f32,
-) -> (Vec<Vec2>, Vec<Vec2>) {
+    control_points: &[Point],
+    t: f64,
+) -> (Vec<Point>, Vec<Point>) {
     assert_eq!(
         control_points.len(),
         2,
@@ -38,9 +41,9 @@ pub fn split_linear_bezier_curve_segment(
 
 /// Split a quadratic Bezier curve segment at parameter t using De Casteljau's algorithm
 pub fn split_quadratic_bezier_curve_segment(
-    control_points: &[Vec2],
-    t: f32,
-) -> (Vec<Vec2>, Vec<Vec2>) {
+    control_points: &[Point],
+    t: f64,
+) -> (Vec<Point>, Vec<Point>) {
     assert_eq!(
         control_points.len(),
         3,
@@ -63,7 +66,10 @@ pub fn split_quadratic_bezier_curve_segment(
 }
 
 /// Split a cubic Bezier curve segment at parameter t using De Casteljau's algorithm
-pub fn split_cubic_bezier_curve_segment(control_points: &[Vec2], t: f32) -> (Vec<Vec2>, Vec<Vec2>) {
+pub fn split_cubic_bezier_curve_segment(
+    control_points: &[Point],
+    t: f64,
+) -> (Vec<Point>, Vec<Point>) {
     assert_eq!(
         control_points.len(),
         4,
@@ -97,28 +103,28 @@ pub fn split_cubic_bezier_curve_segment(control_points: &[Vec2], t: f32) -> (Vec
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy_math::Vec2;
+    use crate::data::Point;
 
     #[test]
     fn test_split_cubic_bezier_curve_segment() {
         let control_points = vec![
-            Vec2::new(0.0, 0.0),
-            Vec2::new(1.0, 2.0),
-            Vec2::new(2.0, 2.0),
-            Vec2::new(3.0, 0.0),
+            Point::ZERO,
+            Point::new(1.0, 2.0),
+            Point::new(2.0, 2.0),
+            Point::new(3.0, 0.0),
         ];
 
-        let (left, right) = split_bezier_curve_segment_at_t(&control_points, 0.5);
+        let (left, right) = split_cubic_bezier_curve_segment(&control_points, 0.5);
 
-        // Both should have 4 points (cubic)
-        assert_eq!(left.len(), 4);
-        assert_eq!(right.len(), 4);
-
-        // Split point should be the same
+        // Left curve should start at original start
+        assert_eq!(left[0], control_points[0]);
+        // Right curve should end at original end
+        assert_eq!(right[3], control_points[3]);
+        // Curves should meet at split point
         assert_eq!(left[3], right[0]);
 
-        // Start and end points should be preserved
-        assert_eq!(left[0], control_points[0]);
-        assert_eq!(right[3], control_points[3]);
+        // Both should have 4 control points
+        assert_eq!(left.len(), 4);
+        assert_eq!(right.len(), 4);
     }
 }

@@ -7,6 +7,7 @@ use houjing_bezier::{
 // Bevy-specific implementation
 use super::cursor::CursorState;
 use super::tool::{Tool, ToolState};
+use crate::compat;
 use crate::component::curve::{BezierCurve, Point};
 use crate::rendering::{DashedLineConfig, render_animated_dashed_line};
 use crate::{EditSet, InputSet, ShowSet};
@@ -103,23 +104,32 @@ fn update_split_preview(
                 continue;
             }
 
-            let t = find_closest_t_on_bezier_curve_segment(&control_points, cursor_pos);
-            let closest_point = evaluate_bezier_curve_segment(&control_points, t);
+            let bezier_points = compat::bevy_vec2_slice_to_hj_bezier_point_vec(&control_points);
+            let t = find_closest_t_on_bezier_curve_segment(
+                &bezier_points,
+                compat::bevy_vec2_to_hj_bezier_point(cursor_pos),
+            );
+            let closest_point = compat::hj_bezier_point_to_bevy_vec2(
+                evaluate_bezier_curve_segment(&bezier_points, t),
+            );
             let distance = cursor_pos.distance(closest_point);
 
             if distance < closest_distance {
                 closest_distance = distance;
-                let perpendicular_line = get_perpendicular_line_to_bezier_curve_segment(
-                    &control_points,
-                    cursor_pos,
-                    config.perpendicular_line_length,
+                let (line_start, line_end) = get_perpendicular_line_to_bezier_curve_segment(
+                    &bezier_points,
+                    compat::bevy_vec2_to_hj_bezier_point(cursor_pos),
+                    config.perpendicular_line_length as f64,
                 );
 
                 closest_preview = Some(SplitPreviewData {
                     curve_entity,
                     closest_point,
-                    perpendicular_line,
-                    split_t: t,
+                    split_t: t as f32,
+                    perpendicular_line: (
+                        compat::hj_bezier_point_to_bevy_vec2(line_start),
+                        compat::hj_bezier_point_to_bevy_vec2(line_end),
+                    ),
                 });
             }
         }
@@ -153,8 +163,12 @@ fn handle_split_action(
         if let Ok((_, curve)) = curve_query.get(preview.curve_entity) {
             if let Some(control_points) = curve.resolve_positions(&point_query) {
                 // Split the curve using the calculated t value
-                let (left_points, right_points) =
-                    split_bezier_curve_segment_at_t(&control_points, preview.split_t);
+                let bezier_points = compat::bevy_vec2_slice_to_hj_bezier_point_vec(&control_points);
+                let (left_bezier_points, right_bezier_points) =
+                    split_bezier_curve_segment_at_t(&bezier_points, preview.split_t as f64);
+                let left_points = compat::hj_bezier_point_vec_to_bevy_vec2_vec(left_bezier_points);
+                let right_points =
+                    compat::hj_bezier_point_vec_to_bevy_vec2_vec(right_bezier_points);
 
                 // Reuse original start and end points, create new intermediate points
                 let original_start = curve.point_entities[0];

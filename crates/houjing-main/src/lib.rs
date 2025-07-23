@@ -1,3 +1,4 @@
+pub mod compat;
 mod component;
 mod rendering;
 mod systems;
